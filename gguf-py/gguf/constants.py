@@ -176,6 +176,10 @@ class Keys:
         SHARED_KV_LAYERS             = "{arch}.attention.shared_kv_layers"
         SLIDING_WINDOW_PATTERN       = "{arch}.attention.sliding_window_pattern"
         TEMPERATURE_SCALE            = "{arch}.attention.temperature_scale"
+        NUM_NOISE_HEADS              = "{arch}.attention.num_noise_heads"
+        GROUPED_RATIO                = "{arch}.attention.grouped_ratio"
+        K_RATIO                      = "{arch}.attention.k_ratio"
+        LAMBDA_INIT                  = "{arch}.attention.lambda_init"
 
     class Rope:
         DIMENSION_COUNT          = "{arch}.rope.dimension_count"
@@ -446,6 +450,7 @@ class MODEL_ARCH(IntEnum):
     RND1             = auto()
     PANGU_EMBED      = auto()
     MISTRAL3         = auto()
+    MOTIF            = auto()
 
 
 class VISION_PROJECTOR_TYPE(IntEnum):
@@ -579,8 +584,15 @@ class MODEL_TENSOR(IntEnum):
     ATTN_V_B             = auto()
     ATTN_Q_A_NORM        = auto()
     ATTN_KV_A_NORM       = auto()
-    FFN_SUB_NORM         = auto()
+    ATTN_LAMBDA_Q1       = auto()
+    ATTN_LAMBDA_K1       = auto()
+    ATTN_LAMBDA_Q2       = auto()
+    ATTN_LAMBDA_K2       = auto()
+    ATTN_LAMBDA_INIT     = auto()
+    FFN_POLYNORM_W       = auto()
+    FFN_POLYNORM_B       = auto()
     ATTN_SUB_NORM        = auto()
+    FFN_SUB_NORM         = auto()
     DEC_ATTN_NORM        = auto()
     DEC_ATTN_Q           = auto()
     DEC_ATTN_K           = auto()
@@ -798,6 +810,7 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.BAILINGMOE2:      "bailingmoe2",
     MODEL_ARCH.DOTS1:            "dots1",
     MODEL_ARCH.ARCEE:            "arcee",
+    MODEL_ARCH.MOTIF:            "motif",
     MODEL_ARCH.AFMOE:            "afmoe",
     MODEL_ARCH.ERNIE4_5:         "ernie4_5",
     MODEL_ARCH.ERNIE4_5_MOE:     "ernie4_5-moe",
@@ -951,6 +964,13 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.ATTN_V_B:                  "blk.{bid}.attn_v_b",
     MODEL_TENSOR.ATTN_Q_A_NORM:             "blk.{bid}.attn_q_a_norm",
     MODEL_TENSOR.ATTN_KV_A_NORM:            "blk.{bid}.attn_kv_a_norm",
+    MODEL_TENSOR.ATTN_LAMBDA_Q1:            "blk.{bid}.attn_lambda_q1",
+    MODEL_TENSOR.ATTN_LAMBDA_K1:            "blk.{bid}.attn_lambda_k1",
+    MODEL_TENSOR.ATTN_LAMBDA_Q2:            "blk.{bid}.attn_lambda_q2",
+    MODEL_TENSOR.ATTN_LAMBDA_K2:            "blk.{bid}.attn_lambda_k2",
+    MODEL_TENSOR.ATTN_LAMBDA_INIT:          "blk.{bid}.attn_lambda_init",
+    MODEL_TENSOR.FFN_POLYNORM_W:            "blk.{bid}.ffn_polynorm_w",
+    MODEL_TENSOR.FFN_POLYNORM_B:            "blk.{bid}.ffn_polynorm_b",
     MODEL_TENSOR.ATTN_SUB_NORM:             "blk.{bid}.attn_sub_norm",
     MODEL_TENSOR.FFN_SUB_NORM:              "blk.{bid}.ffn_sub_norm",
     MODEL_TENSOR.DEC_ATTN_NORM:             "dec.blk.{bid}.attn_norm",
