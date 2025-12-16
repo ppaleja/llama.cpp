@@ -10556,6 +10556,26 @@ class JanusProVisionModel(MmprojModel):
         return []
 
 
+
+@ModelBase.register("MotifForCausalLM")
+class MotifModel(TextModel):
+    model_arch = gguf.MODEL_ARCH.MOTIF
+
+    def set_gguf_parameters(self):
+        self.gguf_writer.add_context_length(self.hparams["max_position_embeddings"])
+        self.gguf_writer.add_embedding_length(self.hparams["hidden_size"])
+        self.gguf_writer.add_block_count(self.block_count)
+        self.gguf_writer.add_feed_forward_length(self.hparams["intermediate_size"])
+        self.gguf_writer.add_head_count(self.hparams["num_attention_heads"])
+        self.gguf_writer.add_head_count_kv(self.hparams["num_key_value_heads"])
+        self.gguf_writer.add_layer_norm_rms_eps(self.hparams["rms_norm_eps"])
+
+        self.gguf_writer.add_uint32(gguf.Keys.Attention.NUM_NOISE_HEADS, self.hparams["num_noise_heads"])
+        self.gguf_writer.add_float32(gguf.Keys.Attention.GROUPED_RATIO, self.hparams["grouped_ratio"])
+        self.gguf_writer.add_float32(gguf.Keys.Attention.K_RATIO, self.hparams["k_ratio"])
+        self.gguf_writer.add_float32(gguf.Keys.Attention.LAMBDA_INIT, self.hparams["lambda_init"])
+
+
 ###### CONVERSION LOGIC ######
 
 

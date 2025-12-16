@@ -293,6 +293,31 @@ class TensorNameMap:
             "model.layers.{bid}.self_attn.language_expert_dense",           # cogvlm
         ),
 
+        MODEL_TENSOR.ATTN_LAMBDA_Q1: (
+            "model.layers.{bid}.attn.lambda_q1",
+        ),
+        MODEL_TENSOR.ATTN_LAMBDA_K1: (
+            "model.layers.{bid}.attn.lambda_k1",
+        ),
+        MODEL_TENSOR.ATTN_LAMBDA_Q2: (
+            "model.layers.{bid}.attn.lambda_q2",
+        ),
+        MODEL_TENSOR.ATTN_LAMBDA_K2: (
+            "model.layers.{bid}.attn.lambda_k2",
+        ),
+        MODEL_TENSOR.ATTN_LAMBDA_INIT: (
+            "model.layers.{bid}.attn.lambda_init",
+        ),
+        MODEL_TENSOR.ATTN_SUB_NORM: (
+            "model.layers.{bid}.attn.subln",
+        ),
+        MODEL_TENSOR.FFN_POLYNORM_W: (
+            "model.layers.{bid}.mlp.act_fn.weight",
+        ),
+        MODEL_TENSOR.FFN_POLYNORM_B: (
+            "model.layers.{bid}.mlp.act_fn.bias",
+        ),
+
         # Attention output norm
         MODEL_TENSOR.ATTN_OUT_NORM: (
             "encoder.layer.{bid}.attention.output.LayerNorm",  # bert
