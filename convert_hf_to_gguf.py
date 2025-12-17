@@ -10571,9 +10571,17 @@ class MotifModel(TextModel):
         self.gguf_writer.add_layer_norm_rms_eps(self.hparams["rms_norm_eps"])
 
         self.gguf_writer.add_uint32(gguf.Keys.Attention.NUM_NOISE_HEADS, self.hparams["num_noise_heads"])
-        self.gguf_writer.add_float32(gguf.Keys.Attention.GROUPED_RATIO, self.hparams["grouped_ratio"])
-        self.gguf_writer.add_float32(gguf.Keys.Attention.K_RATIO, self.hparams["k_ratio"])
-        self.gguf_writer.add_float32(gguf.Keys.Attention.LAMBDA_INIT, self.hparams["lambda_init"])
+        
+        if "grouped_ratio" in self.hparams:
+            grouped_ratio = self.hparams["grouped_ratio"]
+        else:
+            n_head = self.hparams["num_attention_heads"]
+            n_noise_heads = self.hparams["num_noise_heads"]
+            grouped_ratio = (n_head - n_noise_heads) / n_noise_heads
+
+        self.gguf_writer.add_float32(gguf.Keys.Attention.GROUPED_RATIO, grouped_ratio)
+        self.gguf_writer.add_float32(gguf.Keys.Attention.K_RATIO, self.hparams.get("k_ratio", 4.0)) # Default to 4.0 based on Motif 12.7B
+        self.gguf_writer.add_float32(gguf.Keys.Attention.LAMBDA_INIT, self.hparams.get("lambda_init", 1.0))
 
 
 ###### CONVERSION LOGIC ######
