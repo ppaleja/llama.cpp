@@ -595,7 +595,7 @@ class MODEL_TENSOR(IntEnum):
     ATTN_LAMBDA_K1       = auto()
     ATTN_LAMBDA_Q2       = auto()
     ATTN_LAMBDA_K2       = auto()
-    ATTN_LAMBDA_INIT     = auto()
+
     FFN_POLYNORM_W       = auto()
     FFN_POLYNORM_B       = auto()
     ATTN_SUB_NORM        = auto()
@@ -997,7 +997,7 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.ATTN_LAMBDA_K1:            "blk.{bid}.attn_lambda_k1",
     MODEL_TENSOR.ATTN_LAMBDA_Q2:            "blk.{bid}.attn_lambda_q2",
     MODEL_TENSOR.ATTN_LAMBDA_K2:            "blk.{bid}.attn_lambda_k2",
-    MODEL_TENSOR.ATTN_LAMBDA_INIT:          "blk.{bid}.attn_lambda_init",
+
     MODEL_TENSOR.FFN_POLYNORM_W:            "blk.{bid}.ffn_polynorm_w",
     MODEL_TENSOR.FFN_POLYNORM_B:            "blk.{bid}.ffn_polynorm_b",
     MODEL_TENSOR.ATTN_SUB_NORM:             "blk.{bid}.attn_sub_norm",
@@ -2918,7 +2918,7 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.ATTN_LAMBDA_K1,
         MODEL_TENSOR.ATTN_LAMBDA_Q2,
         MODEL_TENSOR.ATTN_LAMBDA_K2,
-        MODEL_TENSOR.ATTN_LAMBDA_INIT,
+
         MODEL_TENSOR.ATTN_SUB_NORM,
         MODEL_TENSOR.FFN_NORM,
         MODEL_TENSOR.FFN_GATE,

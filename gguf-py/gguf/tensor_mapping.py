@@ -305,9 +305,7 @@ class TensorNameMap:
         MODEL_TENSOR.ATTN_LAMBDA_K2: (
             "model.layers.{bid}.self_attn.lambda_k2",
         ),
-        MODEL_TENSOR.ATTN_LAMBDA_INIT: (
-            "model.layers.{bid}.self_attn.lambda_init",
-        ),
+
         MODEL_TENSOR.FFN_POLYNORM_W: (
             "model.layers.{bid}.mlp.act_fn.weight",
         ),
