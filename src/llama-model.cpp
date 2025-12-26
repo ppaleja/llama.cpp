@@ -2356,6 +2356,10 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                     default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;
+        case LLM_ARCH_MOTIF:
+            {
+                
+            }
         default: throw std::runtime_error("unsupported model architecture");
     }
 
