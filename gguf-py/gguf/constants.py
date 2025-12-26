@@ -456,8 +456,6 @@ class MODEL_ARCH(IntEnum):
     MIMO2            = auto()
     LLAMA_EMBED      = auto()
     MOTIF            = auto()
-    MIMO2            = auto()
-    LLAMA_EMBED      = auto()
 
 
 class VISION_PROJECTOR_TYPE(IntEnum):
@@ -3285,7 +3283,7 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_GATE_EXP,
         MODEL_TENSOR.FFN_DOWN_EXP,
         MODEL_TENSOR.FFN_UP_EXP,
-    ]
+    ],
     MODEL_ARCH.MIMO2: [
         MODEL_TENSOR.TOKEN_EMBD,
         MODEL_TENSOR.OUTPUT_NORM,
