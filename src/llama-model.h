@@ -212,6 +212,13 @@ struct llama_layer {
     struct ggml_tensor * attn_q_a_norm   = nullptr;
     struct ggml_tensor * attn_kv_a_norm  = nullptr;
     struct ggml_tensor * attn_sub_norm   = nullptr;
+
+    // motif differential attention
+    struct ggml_tensor * attn_lambda_q1 = nullptr;
+    struct ggml_tensor * attn_lambda_k1 = nullptr;
+    struct ggml_tensor * attn_lambda_q2 = nullptr;
+    struct ggml_tensor * attn_lambda_k2 = nullptr;
+
     struct ggml_tensor * attn_post_norm  = nullptr;
     struct ggml_tensor * ffn_sub_norm    = nullptr;
     struct ggml_tensor * attn_norm_cross = nullptr;
@@ -299,6 +306,10 @@ struct llama_layer {
     struct ggml_tensor * ffn_up_b   = nullptr; // b3
     struct ggml_tensor * ffn_act    = nullptr;
     struct ggml_tensor * ffn_exp_probs_b = nullptr;
+
+    // motif polynorm
+    struct ggml_tensor * ffn_polynorm_w = nullptr;
+    struct ggml_tensor * ffn_polynorm_b = nullptr;
 
     // mamba proj
     struct ggml_tensor * ssm_in  = nullptr;
