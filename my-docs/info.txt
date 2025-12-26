@@ -1,0 +1,1 @@
+This folder is to keep track of documents that are useful for working on https://github.com/ggml-org/llama.cpp/issues/18055
