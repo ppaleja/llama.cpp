@@ -493,6 +493,12 @@ static const std::map<llm_tensor, const char *> LLM_TENSOR_NAMES = {
     { LLM_TENSOR_VISEXP_FFN_GATE,                        "blk.%d.vis_gate" },
     { LLM_TENSOR_VISEXP_FFN_DOWN,                        "blk.%d.vis_down" },
     { LLM_TENSOR_VISEXP_FFN_UP,                          "blk.%d.vis_up" },
+    { LLM_TENSOR_ATTN_LAMBDA_Q1,                     "blk.%d.attn_lambda_q1" },
+    { LLM_TENSOR_ATTN_LAMBDA_K1,                     "blk.%d.attn_lambda_k1" },
+    { LLM_TENSOR_ATTN_LAMBDA_Q2,                     "blk.%d.attn_lambda_q2" },
+    { LLM_TENSOR_ATTN_LAMBDA_K2,                     "blk.%d.attn_lambda_k2" },
+    { LLM_TENSOR_FFN_POLYNORM_W,                     "blk.%d.ffn_polynorm_w" },
+    { LLM_TENSOR_FFN_POLYNORM_B,                     "blk.%d.ffn_polynorm_b" },
 };
 
 static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
@@ -2211,6 +2217,30 @@ static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
                 LLM_TENSOR_FFN_DOWN_EXPS,
                 LLM_TENSOR_FFN_UP_EXPS,
                 LLM_TENSOR_FFN_EXP_PROBS_B,
+            };
+        case LLM_ARCH_MOTIF:
+            return {
+                LLM_TENSOR_TOKEN_EMBD,
+                LLM_TENSOR_OUTPUT_NORM,
+                LLM_TENSOR_OUTPUT,
+                LLM_TENSOR_ROPE_FREQS,
+                LLM_TENSOR_ATTN_NORM,
+                LLM_TENSOR_ATTN_Q,
+                LLM_TENSOR_ATTN_K,
+                LLM_TENSOR_ATTN_V,
+                LLM_TENSOR_ATTN_OUT,
+                LLM_TENSOR_ATTN_ROT_EMBD,
+                LLM_TENSOR_ATTN_SUB_NORM,
+                LLM_TENSOR_ATTN_LAMBDA_Q1,
+                LLM_TENSOR_ATTN_LAMBDA_K1,
+                LLM_TENSOR_ATTN_LAMBDA_Q2,
+                LLM_TENSOR_ATTN_LAMBDA_K2,
+                LLM_TENSOR_FFN_NORM,
+                LLM_TENSOR_FFN_GATE,
+                LLM_TENSOR_FFN_DOWN,
+                LLM_TENSOR_FFN_UP,
+                LLM_TENSOR_FFN_POLYNORM_W,
+                LLM_TENSOR_FFN_POLYNORM_B,
             };
         case LLM_ARCH_GPTJ:
         case LLM_ARCH_UNKNOWN:
