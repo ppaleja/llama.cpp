@@ -17,16 +17,16 @@ cat > "$PRE_COMMIT_HOOK" << 'EOF'
 # Check if there are any changes in the webui directory
 if git diff --cached --name-only | grep -q "^tools/server/webui/"; then
     echo "Formatting and checking webui code..."
-    
+
     # Change to webui directory and run format
     cd tools/server/webui
-    
+
     # Check if npm is available and package.json exists
     if [ ! -f "package.json" ]; then
         echo "Error: package.json not found in tools/server/webui"
         exit 1
     fi
-    
+
     # Run the format command
     npm run format
 
@@ -38,7 +38,7 @@ if git diff --cached --name-only | grep -q "^tools/server/webui/"; then
 
     # Run the lint command
     npm run lint
-    
+
     # Check if lint command succeeded
     if [ $? -ne 0 ]; then
         echo "Error: npm run lint failed"
@@ -47,7 +47,7 @@ if git diff --cached --name-only | grep -q "^tools/server/webui/"; then
 
     # Run the check command
     npm run check
-    
+
     # Check if check command succeeded
     if [ $? -ne 0 ]; then
         echo "Error: npm run check failed"
@@ -56,7 +56,7 @@ if git diff --cached --name-only | grep -q "^tools/server/webui/"; then
 
     # Go back to repo root
     cd ../../..
-    
+
     echo "✅ Webui code formatted and checked successfully"
 fi
 
@@ -72,20 +72,20 @@ WEBUI_CHANGES=$(git diff --name-only @{push}..HEAD | grep "^tools/server/webui/"
 
 if [ -n "$WEBUI_CHANGES" ]; then
     echo "Webui changes detected, checking if build is up-to-date..."
-    
+
     # Change to webui directory
     cd tools/server/webui
-    
+
     # Check if npm is available and package.json exists
     if [ ! -f "package.json" ]; then
         echo "Error: package.json not found in tools/server/webui"
         exit 1
     fi
-    
+
     # Check if build output exists and is newer than source files
     BUILD_FILE="../public/index.html.gz"
     NEEDS_BUILD=false
-    
+
     if [ ! -f "$BUILD_FILE" ]; then
         echo "Build output not found, building..."
         NEEDS_BUILD=true
@@ -96,10 +96,10 @@ if [ -n "$WEBUI_CHANGES" ]; then
             NEEDS_BUILD=true
         fi
     fi
-    
+
     if [ "$NEEDS_BUILD" = true ]; then
         echo "Building webui..."
-        
+
         # Stash any unstaged changes to avoid conflicts during build
         echo "Checking for unstaged changes..."
         if ! git diff --quiet || ! git diff --cached --quiet --diff-filter=A; then
@@ -110,10 +110,10 @@ if [ -n "$WEBUI_CHANGES" ]; then
             echo "No unstaged changes to stash"
             STASH_CREATED=1
         fi
-        
+
         # Run the build command
         npm run build
-        
+
         # Check if build command succeeded
         if [ $? -ne 0 ]; then
             echo "Error: npm run build failed"
@@ -125,7 +125,7 @@ if [ -n "$WEBUI_CHANGES" ]; then
 
         # Go back to repo root
         cd ../../..
-        
+
         # Check if build output was created/updated
         if [ -f "tools/server/public/index.html.gz" ]; then
             # Add the build output and commit it
@@ -144,7 +144,7 @@ if [ -n "$WEBUI_CHANGES" ]; then
             fi
             exit 1
         fi
-        
+
         if [ $STASH_CREATED -eq 0 ]; then
             echo "✅ Build completed. Your unstaged changes have been stashed."
             echo "They will be automatically restored after the push."
@@ -154,7 +154,7 @@ if [ -n "$WEBUI_CHANGES" ]; then
     else
         echo "✅ Build output is up-to-date"
     fi
-    
+
     echo "✅ Webui ready for push"
 fi
 

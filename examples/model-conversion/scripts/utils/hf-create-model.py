@@ -7,7 +7,9 @@ import argparse
 # Hugging Face API token.
 api = HfApi()
 
+
 def load_template_and_substitute(template_path, **kwargs):
+
     try:
         with open(template_path, 'r', encoding='utf-8') as f:
             template_content = f.read()
@@ -19,6 +21,7 @@ def load_template_and_substitute(template_path, **kwargs):
     except KeyError as e:
         print(f"Missing template variable: {e}")
         return None
+
 
 parser = argparse.ArgumentParser(description='Create a new Hugging Face model repository')
 parser.add_argument('--model-name', '-m', help='Name for the model', required=True)
@@ -74,5 +77,3 @@ if not args.no_card:
 
 if not args.dry_run and repo_url:
     print(f"Repository created: {repo_url}")
-
-

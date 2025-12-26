@@ -261,4 +261,3 @@ main: n_kv_max = 270336, n_batch = 2048, n_ubatch = 2048, flash_attn = 1, is_pp_
 | gemma3 4B Q4_0                 |   2.35 GiB |     3.88 B | CUDA       |  99 |     2048 |  1 |    0 |   tg32 @ d32768 |         63.02 ± 0.20 |
 
 build: eeee367de (6989)
-

@@ -32,4 +32,3 @@ cmake --build ../../build --target llama-perplexity -j8
     --kl-divergence-base $OUTPUTFILE
 
 echo "Generated logits in $OUTPUTFILE"
-

@@ -71,4 +71,3 @@ cat "$RESULTS"
 printf "\n"
 printf "Done! Results are written to $RESULTS\n"
 printf "\n"
-

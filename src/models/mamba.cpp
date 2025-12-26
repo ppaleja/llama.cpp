@@ -52,4 +52,3 @@ llm_build_mamba::llm_build_mamba(const llama_model & model, const llm_graph_para
 
     ggml_build_forward_expand(gf, cur);
 }
-

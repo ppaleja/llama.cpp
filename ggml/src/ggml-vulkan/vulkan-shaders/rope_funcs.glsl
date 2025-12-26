@@ -231,4 +231,3 @@ void rope_vision(const uint i0, const uint i1, rope_params p) {
     rope_data_d[idst + 0]        = ROPE_D_TYPE(x0*cos_theta - x1*sin_theta);
     rope_data_d[idst + p.n_dims] = ROPE_D_TYPE(x0*sin_theta + x1*cos_theta);
 }
-

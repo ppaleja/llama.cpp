@@ -10556,7 +10556,6 @@ class JanusProVisionModel(MmprojModel):
         return []
 
 
-
 @ModelBase.register("MotifForCausalLM")
 class MotifModel(TextModel):
     model_arch = gguf.MODEL_ARCH.MOTIF
@@ -10565,7 +10564,7 @@ class MotifModel(TextModel):
         super().set_gguf_parameters()
 
         self.gguf_writer.add_uint32(gguf.Keys.Attention.NUM_NOISE_HEADS, self.hparams["num_noise_heads"])
-        
+
         if "grouped_ratio" in self.hparams:
             grouped_ratio = self.hparams["grouped_ratio"]
         else:

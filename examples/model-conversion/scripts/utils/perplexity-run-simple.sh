@@ -23,5 +23,3 @@ fi
 cmake --build ../../build --target llama-perplexity -j8
 
 ../.././build/bin/llama-perplexity -m $QUANTIZED_MODEL -f ppl/wikitext-2-raw/wiki.test.raw
-
-

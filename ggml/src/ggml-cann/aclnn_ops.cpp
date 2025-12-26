@@ -3804,4 +3804,3 @@ void ggml_cann_ssm_conv(ggml_backend_cann_context & ctx, ggml_tensor * dst) {
                             acl_y.get(),
                             cubeMathType);
 }
-

@@ -2,8 +2,8 @@
 
 Issue: [#18055](https://github.com/ggml-org/llama.cpp/issues/18055)
 
-Model: MotifForCausalLM (Motif-2-12.7B-Reasoning)  
-Reference: [Hugging Face modeling_motif.py](https://huggingface.co/Motif-Technologies/Motif-2-12.7B-Reasoning/blob/main/modeling_motif.py)  
+Model: MotifForCausalLM (Motif-2-12.7B-Reasoning)
+Reference: [Hugging Face modeling_motif.py](https://huggingface.co/Motif-Technologies/Motif-2-12.7B-Reasoning/blob/main/modeling_motif.py)
 vLLM Reference: [Motif branch](https://github.com/MotifTechnologies/vllm/tree/motif)
 
 **Key Architectural Features:**

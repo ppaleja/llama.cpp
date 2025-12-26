@@ -475,4 +475,3 @@ void ggml_sycl_rope(ggml_backend_sycl_context & ctx, ggml_tensor * dst) {
     scope_op_debug_print scope_dbg_print(__func__, dst, /*num_src=*/3);
     ggml_sycl_op_rope(ctx, dst);
 }
-
