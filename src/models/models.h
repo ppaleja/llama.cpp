@@ -332,6 +332,10 @@ struct llm_build_mistral3 : public llm_graph_context {
     llm_build_mistral3(const llama_model & model, const llm_graph_params & params);
 };
 
+struct llm_build_motif : public llm_graph_context {
+    llm_build_motif(const llama_model & model, const llm_graph_params & params);
+};
+
 template <bool iswa>
 struct llm_build_modern_bert : public llm_graph_context {
     llm_build_modern_bert(const llama_model & model, const llm_graph_params & params);

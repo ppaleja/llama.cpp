@@ -2356,6 +2356,15 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                     default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;
+        case LLM_ARCH_MOTIF:
+            {
+                ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+
+                switch (hparams.n_layer) {
+                    case 40: type = LLM_TYPE_13B; break; // Motif-2-12.7B
+                    default: type = LLM_TYPE_UNKNOWN;
+                }
+            } break;
         default: throw std::runtime_error("unsupported model architecture");
     }
 
@@ -2733,6 +2742,46 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         }
                     }
                 } break;
+            case LLM_ARCH_MOTIF:
+            {
+                tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD,   "weight"), {n_embd, n_vocab}, 0);
+                // output
+                output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
+                output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, TENSOR_NOT_REQUIRED);
+                if (output == NULL) {
+                    output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
+                }
+
+                for (int i = 0; i < n_layer; ++i) {
+                    auto & layer = layers[i];
+
+                    layer.attn_norm = create_tensor(tn(LLM_TENSOR_ATTN_NORM, "weight", i), {n_embd}, 0);
+
+                    layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd_head_k * n_head},    0);
+                    layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_head_k * n_head_kv}, 0);
+                    layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_v_gqa}, 0);
+
+                    // Motif: attn_output projects grouped V heads
+                    // Effective V width = grouped_ratio (4.0 for Motif-2-12.7B) * (n_embd_head_v * n_head_kv) == grouped_ratio * n_embd_v_gqa
+                    layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), { (int64_t) (4 * n_embd_v_gqa), n_embd }, 0);
+
+                    layer.attn_lambda_q1 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_Q1, i), {n_embd_head_k}, 0);
+                    layer.attn_lambda_k1 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_K1, i), {n_embd_head_k}, 0);
+                    layer.attn_lambda_q2 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_Q2, i), {n_embd_head_k}, 0);
+                    layer.attn_lambda_k2 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_K2, i), {n_embd_head_k}, 0);
+
+                    layer.attn_sub_norm = create_tensor(tn(LLM_TENSOR_ATTN_SUB_NORM, "weight", i), {2 * n_embd_head_k}, 0);
+                    layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
+                    layer.rope_freqs = create_tensor(tn(LLM_TENSOR_ROPE_FREQS, "weight", i), {n_rot/2}, TENSOR_NOT_REQUIRED | (i != 0 ? TENSOR_DUPLICATED : 0));
+
+                    layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
+                    layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
+                    layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
+
+                    layer.ffn_polynorm_w = create_tensor(tn(LLM_TENSOR_FFN_POLYNORM_W, i), {3}, 0);
+                    layer.ffn_polynorm_b = create_tensor(tn(LLM_TENSOR_FFN_POLYNORM_B, i), {1}, 0);
+                }
+            } break;
             case LLM_ARCH_LLADA:
                 {
                     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, 0);
@@ -7769,6 +7818,10 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
             {
                 llm = std::make_unique<llm_build_mimo2_iswa>(*this, params);
             } break;
+        case LLM_ARCH_MOTIF:
+            {
+                llm = std::make_unique<llm_build_motif>(*this, params);
+            } break;
         default:
             GGML_ABORT("fatal error");
     }
@@ -7940,6 +7993,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_ERNIE4_5_MOE:
         case LLM_ARCH_MISTRAL3:
         case LLM_ARCH_LLAMA_EMBED:
+        case LLM_ARCH_MOTIF:
             return LLAMA_ROPE_TYPE_NORM;
 
         // the pairs of head values are offset by n_rot/2

@@ -92,6 +92,7 @@ add_library(llama
             models/minicpm3.cpp
             models/minimax-m2.cpp
             models/modern-bert.cpp
+            models/motif.cpp
             models/mpt.cpp
             models/nemotron-h.cpp
             models/nemotron.cpp

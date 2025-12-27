@@ -13,67 +13,124 @@ vLLM Reference: [Motif branch](https://github.com/MotifTechnologies/vllm/tree/mo
 
 ---
 
-## Phase 1: Preparation & Analysis
+## Phase 1: Preparation & Analysis ✅ COMPLETE
 
-### Tokenizer & Model Inspection
+> **Documentation:** See [phase-1.md](./phase-1.md) for full research findings.
 
-- [ ] Identify tokenizer type used by MotifForCausalLM
-- [ ] Check if tokenizer is already supported in llama.cpp
-  - If new: add to `convert_hf_to_gguf_update.py`
-  - If existing: skip this step
-- [ ] Download `model.safetensors.index.json` and `config.json` from reference model
-- [ ] Create checklist of all model tensors in `model.safetensors.index.json`
-- [ ] Review `modeling_motif.py` to understand layer structure and parameters
-- [ ] Review vLLM reference for additional implementation details
+### Summary
 
-### Architecture Decisions
-
-- [ ] Identify if GroupedDifferentialAttention can use existing GGML attention primitives
-  - If not, plan custom GGML operation(s)
-- [ ] Identify if PolyNorm can be implemented as a variant of existing layer norm
-  - If not, plan custom GGML operation(s)
-- [ ] Determine if any expert/specialized tensor packing is needed
-- [ ] Identify RoPE type (normal vs NeoX) from `apply_rotary_pos_emb` in reference code
+- [x] Tokenizer: BPE-based, Llama-3/Tiktoken compatible (already supported)
+- [x] Architecture: `MotifForCausalLM` with 40 layers
+- [x] Unique Features Identified:
+  - **GroupedDifferentialAttention (GDA):** Requires custom graph with learnable `lambda` parameters
+  - **PolyNorm:** Learnable polynomial activation with `act_fn.weight` and `act_fn.bias`
+  - **SubLayerNorm:** Internal normalization in attention (`subln.weight`)
+- [x] RoPE Type: Standard RoPE with high theta (1,000,000)
+- [x] Tensor packing: Lambda scalars need correct handling
 
 ---
 
-## Phase 2: Tensor Conversion
+## Phase 2: Tensor Conversion ✅ COMPLETE
+
+> **Verification:** See [GGUF_Conversion.ipynb](../GGUF_Conversion.ipynb) for test results.
 
 ### Constants & Mappings
 
-- [ ] Add `MOTIF` architecture constant to `gguf-py/constants.py`
-  - Include codename and full tensor list
-- [ ] Add tensor name mappings to `gguf-py/tensor_mapping.py`
-  - Map HF parameter names to GGML convention
-  - Handle non-standard naming if present (e.g., `_weight`, `_bias` vs `.weight`, `.bias`)
-- [ ] Update `llama-arch.h` and `llama-arch.cpp` with architecture identifier
+- [x] Added `MOTIF` architecture constant to `gguf-py/gguf/constants.py` (line 458)
+- [x] Added tensor name mappings to `gguf-py/gguf/tensor_mapping.py`:
+  - `lambda_q1/k1/q2/k2` → `ATTN_LAMBDA_Q1/K1/Q2/K2`
+  - `act_fn.weight/bias` → `FFN_POLYNORM_W/B`
+  - `subln.weight` → `ATTN_SUB_NORM`
+- [x] Added Motif-specific hyperparameter keys:
+  - `NUM_NOISE_HEADS`, `GROUPED_RATIO`, `K_RATIO`, `LAMBDA_INIT`
 
 ### Converter Implementation
 
-- [ ] Create converter class in `convert_hf_to_gguf.py`
-  - Inherit from appropriate base class (likely `TextModel` or similar)
-  - Implement `set_gguf_parameters()` for hyperparameters
-  - Implement `prepare_tensors()` for any special tensor creation/packing
-  - Implement `modify_tensors()` for renaming, merging, omitting tensors
-- [ ] Test conversion with reference model
-  - Run converter and verify all tensors load without errors
-  - Check tensor dimensions match expected shapes
+- [x] Created `MotifModel` class in `convert_hf_to_gguf.py` (line 10560)
+- [x] Implemented `set_gguf_parameters()` with `super()` call for RoPE handling
+- [x] Fixed: Removed spurious `ATTN_LAMBDA_INIT` tensor (correctly stored as hyperparameter only)
+
+### Verification Results (from notebook)
+
+| Check | Result |
+|-------|--------|
+| Total tensors | 643 |
+| `attn_lambda_q1/k1/q2/k2` | 40 each ✅ |
+| `attn_sub_norm` | 40 ✅ |
+| `ffn_polynorm_w/b` | 40 each ✅ |
+| `grouped_ratio` | 4.0 ✅ |
+| `num_noise_heads` | 8 ✅ |
+| `lambda_init` | 1.0 (hyperparameter) ✅ |
 
 ---
 
-## Phase 3: Model Loading
+## Phase 3: Model Loading 🔄 NEXT
 
-### Hyperparameter & Tensor Loading
+### Compatibility Analysis
 
-- [ ] Add hyperparameter loading in `llama-model.cpp` `load_hparams()`
-  - Extract Motif-specific parameters from GGUF
-- [ ] Add tensor loading in `llama-model.cpp` `load_tensors()`
-  - Handle all converted tensors
-  - Explicitly ignore any unused tensors (e.g., if not implementing training)
-- [ ] Verify model size enum is updated (if needed)
-- [ ] Test successful model loading with a reference model file
+| Component | Motif Implementation | llama.cpp Status |
+|-----------|---------------------|------------------|
+| RoPE | Standard with high theta (1M) | ✅ Reusable |
+| RMSNorm | Standard | ✅ Reusable |
+| MLP structure | gate→act→up→down | ✅ Reusable |
+| **PolyNorm** | `w[0]*norm(x³) + w[1]*norm(x²) + w[2]*norm(x) + b` | ❌ Custom op needed |
+| **Differential Attention** | `attn1 - λ*attn2` with learnable λ | ❌ Custom graph needed |
+| **SubLayerNorm** | RMSNorm inside attention | ❌ Custom placement |
+| **Lambda tensors** | 4 per-layer vectors (128 dims) | ❌ New tensor type |
+
+### Objective (Minimal)
+
+Register Motif architecture and enable tensor loading. Defer custom attention/activation to Phase 4.
+
+### Tasks
+
+#### Architecture Registration (Minimal)
+
+- [ ] Add `LLM_ARCH_MOTIF` to `llama-arch.h`
+- [ ] Add `"motif"` string mapping in `llama-arch.cpp`
+
+#### Tensor Type Registration
+
+- [ ] Add `LLM_TENSOR_ATTN_LAMBDA_Q1/K1/Q2/K2` to tensor enum
+- [ ] Add `LLM_TENSOR_ATTN_SUB_NORM` to tensor enum
+- [ ] Add `LLM_TENSOR_FFN_POLYNORM_W/B` to tensor enum
+
+#### Layer Struct Extension
+
+- [ ] Add to `llama_layer` struct in `llama-model.h`:
+  ```cpp
+  // Motif differential attention
+  ggml_tensor * lambda_q1 = nullptr;
+  ggml_tensor * lambda_k1 = nullptr;
+  ggml_tensor * lambda_q2 = nullptr;
+  ggml_tensor * lambda_k2 = nullptr;
+  ggml_tensor * attn_sub_norm = nullptr;
+  
+  // Motif PolyNorm
+  ggml_tensor * ffn_polynorm_w = nullptr;
+  ggml_tensor * ffn_polynorm_b = nullptr;
+  ```
+
+#### Tensor Loading
+
+- [ ] Add `LLM_ARCH_MOTIF` case in `load_tensors()` (copy from LLAMA, add new tensors)
+
+#### Verification
+
+- [ ] Load GGUF file without "skipping unknown tensor" warnings
+- [ ] Verify hyperparameters are parsed
+
+### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/llama-arch.h` | Add enum value |
+| `src/llama-arch.cpp` | Add tensor mappings |
+| `src/llama-model.h` | Extend layer struct |
+| `src/llama-model.cpp` | Add tensor loading case |
 
 ---
+
 
 ## Phase 4: Graph Builder Implementation
 
