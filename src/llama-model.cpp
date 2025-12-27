@@ -2759,10 +2759,11 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
 
                     layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd_head_k * n_head},    0);
                     layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K,   "weight", i), {n_embd, n_embd_head_k * n_head_kv}, 0);
-                    layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_head_v * n_head_kv}, 0);
+                    layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_v_gqa}, 0);
 
-                    // FIX: attn_output projects concatenated V heads, not K heads
-                    layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_v * n_head, n_embd},    0);
+                    // Motif: attn_output projects grouped V heads
+                    // Effective V width = grouped_ratio (4.0 for Motif-2-12.7B) * (n_embd_head_v * n_head_kv) == grouped_ratio * n_embd_v_gqa
+                    layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), { (int64_t) (4 * n_embd_v_gqa), n_embd }, 0);
 
                     layer.attn_lambda_q1 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_Q1, "weight", i), {n_embd_head_k}, 0);
                     layer.attn_lambda_k1 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_K1, "weight", i), {n_embd_head_k}, 0);
