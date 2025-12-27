@@ -7820,7 +7820,7 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
             } break;
         case LLM_ARCH_MOTIF:
             {
-                llm = std::make_unique<llm_build_llama>(*this, params);  // Temporary fallback 
+                llm = std::make_unique<llm_build_motif>(*this, params);
             } break;
         default:
             GGML_ABORT("fatal error");
@@ -7993,6 +7993,7 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
         case LLM_ARCH_ERNIE4_5_MOE:
         case LLM_ARCH_MISTRAL3:
         case LLM_ARCH_LLAMA_EMBED:
+        case LLM_ARCH_MOTIF:
             return LLAMA_ROPE_TYPE_NORM;
 
         // the pairs of head values are offset by n_rot/2
