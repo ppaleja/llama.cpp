@@ -7818,6 +7818,10 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
             {
                 llm = std::make_unique<llm_build_mimo2_iswa>(*this, params);
             } break;
+        case LLM_ARCH_MOTIF:
+            {
+                llm = std::make_unique<llm_build_llama>(*this, params);  // Temporary fallback 
+            } break;
         default:
             GGML_ABORT("fatal error");
     }
