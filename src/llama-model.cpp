@@ -2770,7 +2770,7 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                     layer.attn_lambda_q2 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_Q2, i), {n_embd_head_k}, 0);
                     layer.attn_lambda_k2 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_K2, i), {n_embd_head_k}, 0);
 
-                    layer.attn_sub_norm = create_tensor(tn(LLM_TENSOR_ATTN_SUB_NORM, i), {n_embd}, 0);
+                    layer.attn_sub_norm = create_tensor(tn(LLM_TENSOR_ATTN_SUB_NORM, "weight", i), {n_embd}, 0);
 
                     layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
                     layer.rope_freqs = create_tensor(tn(LLM_TENSOR_ROPE_FREQS, "weight", i), {n_rot/2}, TENSOR_NOT_REQUIRED | (i != 0 ? TENSOR_DUPLICATED : 0));
