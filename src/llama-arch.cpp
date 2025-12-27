@@ -117,6 +117,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_MISTRAL3,         "mistral3"         },
     { LLM_ARCH_MIMO2,            "mimo2"           },
     { LLM_ARCH_LLAMA_EMBED,      "llama-embed"      },
+    { LLM_ARCH_MOTIF,            "motif"            },
     { LLM_ARCH_UNKNOWN,          "(unknown)"        },
 };
 
