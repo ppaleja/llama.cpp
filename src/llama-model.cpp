@@ -2765,12 +2765,12 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                     // Effective V width = grouped_ratio (4.0 for Motif-2-12.7B) * (n_embd_head_v * n_head_kv) == grouped_ratio * n_embd_v_gqa
                     layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), { (int64_t) (4 * n_embd_v_gqa), n_embd }, 0);
 
-                    layer.attn_lambda_q1 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_Q1, "weight", i), {n_embd_head_k}, 0);
-                    layer.attn_lambda_k1 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_K1, "weight", i), {n_embd_head_k}, 0);
-                    layer.attn_lambda_q2 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_Q2, "weight", i), {n_embd_head_k}, 0);
-                    layer.attn_lambda_k2 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_K2, "weight", i), {n_embd_head_k}, 0);
+                    layer.attn_lambda_q1 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_Q1, i), {n_embd_head_k}, 0);
+                    layer.attn_lambda_k1 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_K1, i), {n_embd_head_k}, 0);
+                    layer.attn_lambda_q2 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_Q2, i), {n_embd_head_k}, 0);
+                    layer.attn_lambda_k2 = create_tensor(tn(LLM_TENSOR_ATTN_LAMBDA_K2, i), {n_embd_head_k}, 0);
 
-                    layer.attn_sub_norm = create_tensor(tn(LLM_TENSOR_ATTN_SUB_NORM, "weight", i), {n_embd}, 0);
+                    layer.attn_sub_norm = create_tensor(tn(LLM_TENSOR_ATTN_SUB_NORM, i), {n_embd}, 0);
 
                     layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
                     layer.rope_freqs = create_tensor(tn(LLM_TENSOR_ROPE_FREQS, "weight", i), {n_rot/2}, TENSOR_NOT_REQUIRED | (i != 0 ? TENSOR_DUPLICATED : 0));
@@ -2779,8 +2779,8 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                     layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
                     layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
 
-                    layer.ffn_polynorm_w = create_tensor(tn(LLM_TENSOR_FFN_POLYNORM_W, "weight", i), {3}, 0);
-                    layer.ffn_polynorm_b = create_tensor(tn(LLM_TENSOR_FFN_POLYNORM_B, "weight", i), {1}, 0);
+                    layer.ffn_polynorm_w = create_tensor(tn(LLM_TENSOR_FFN_POLYNORM_W, i), {3}, 0);
+                    layer.ffn_polynorm_b = create_tensor(tn(LLM_TENSOR_FFN_POLYNORM_B, i), {1}, 0);
                 }
             } break;
             case LLM_ARCH_LLADA:
