@@ -97,7 +97,7 @@ Register Motif architecture and enable tensor loading. Defer custom attention/ac
 
 #### Layer Struct Extension
 
-- [ ] Add to `llama_layer` struct in `llama-model.h`:
+- [x] Add to `llama_layer` struct in `llama-model.h`:
   ```cpp
   // Motif differential attention
   ggml_tensor * lambda_q1 = nullptr;
@@ -105,7 +105,7 @@ Register Motif architecture and enable tensor loading. Defer custom attention/ac
   ggml_tensor * lambda_q2 = nullptr;
   ggml_tensor * lambda_k2 = nullptr;
   ggml_tensor * attn_sub_norm = nullptr;
-  
+
   // Motif PolyNorm
   ggml_tensor * ffn_polynorm_w = nullptr;
   ggml_tensor * ffn_polynorm_b = nullptr;
@@ -113,7 +113,7 @@ Register Motif architecture and enable tensor loading. Defer custom attention/ac
 
 #### Tensor Loading
 
-- [ ] Add `LLM_ARCH_MOTIF` case in `load_tensors()` (copy from LLAMA, add new tensors)
+- [x] Add `LLM_ARCH_MOTIF` case in `load_tensors()` (copy from LLAMA, add new tensors)
 
 #### Verification
 
