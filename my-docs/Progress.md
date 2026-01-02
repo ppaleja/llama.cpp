@@ -134,6 +134,8 @@ Register Motif architecture and enable tensor loading. Defer custom attention/ac
 
 ## Phase 4: Graph Builder Implementation
 
+> **Analysis**: See [phase-4-analysis.md](./phase-4-analysis.md) for detailed breakdown of reusable vs custom operations.
+
 ### New Model File & Registration
 
 - [ ] Create `src/models/motif.cpp` (graph builder)
@@ -144,31 +146,42 @@ Register Motif architecture and enable tensor loading. Defer custom attention/ac
 
 - [ ] Implement core graph builder class with `build()` method
   - Token embedding
-  - Positional encoding (RoPE)
+  - Positional encoding (RoPE) - ✅ Standard `ggml_rope_ext()`
   - Layer stack:
-    - [ ] GroupedDifferentialAttention (or use fallback attention + plan custom op)
-    - [ ] PolyNorm (or use fallback layer norm + plan custom op)
-    - [ ] FFN layers
+    - [ ] GroupedDifferentialAttention (custom graph builder function)
+      - Lambda computation (reuse: `ggml_mul`, `ggml_sum`, `ggml_exp`)
+      - Head reshaping (reuse: `ggml_view_*`, `ggml_reshape_*`)
+      - Differential attention (custom graph structure)
+      - SubLayerNorm (reuse: `ggml_rms_norm()`)
+    - [ ] PolyNorm (build from primitives: `ggml_pow`, `ggml_sqr`, `ggml_rms_norm`)
+    - [ ] FFN layers (reuse: standard MLP structure)
   - Output projection & logits
 - [ ] Mark output tensor with `ggml_build_forward_expand()`
-- [ ] Handle KV cache for inference (if applicable)
+- [ ] Handle KV cache for inference (reuse: standard KV cache)
 
 ### Custom Operations (if needed)
 
-- [ ] If GroupedDifferentialAttention requires custom op:
-  - [ ] Design GGML operation signature
-  - [ ] Add operation to `ggml.h` / `ggml.c`
-  - [ ] Implement CPU backend in `ggml-cpu.c` / `ops.cpp`
-  - [ ] Add tests to `test-backend-ops.cpp`
-- [ ] If PolyNorm requires custom op:
-  - [ ] Follow same steps as attention custom op
+- [ ] **GroupedDifferentialAttention**: Custom graph builder function (no new GGML op needed)
+  - Implement `build_differential_attention()` in `motif.cpp`
+  - Use existing attention building blocks from `build_attn_mha()`
+- [ ] **PolyNorm**: Start with primitives, optimize to custom op if needed
+  - Phase 4A: Build from `ggml_pow()`, `ggml_sqr()`, `ggml_rms_norm()`
+  - Phase 4B (optional): Add `GGML_OP_POLYNORM` if performance requires it
 
 ### RoPE Configuration
 
-- [ ] Verify RoPE type from reference `apply_rotary_pos_emb`
-  - If interleave + repeat_interleave(2) present: normal RoPE
-  - If not: NeoX RoPE
-- [ ] Add RoPE switch case in `llama-model.cpp` if needed
+- [ ] **VERIFICATION NEEDED**: Determine RoPE type (normal vs NeoX)
+  - **Transformers code analysis**:
+    - `MotifRotaryEmbeddingWithCache` concatenates frequencies: `torch.cat((freqs, freqs))` (line 146)
+    - `apply_rotary_pos_emb()` does NOT use `repeat_interleave(2)` before applying (lines 291-293)
+    - According to llama.cpp docs: if `repeat_interleave(2)` is present → normal RoPE, if absent → NeoX RoPE
+  - **vLLM PR #27396 findings**:
+    - `MotifForCausalLM` inherits from `LlamaForCausalLM` in vLLM
+    - Uses vLLM's existing RoPE primitives (standard Llama RoPE)
+    - Llama models typically use **normal** RoPE
+  - **Conflicting signals**: Transformers code suggests NeoX, but vLLM inheritance suggests normal
+  - **Action**: Start with **normal** RoPE (matching vLLM), test both types during implementation
+  - `rope_theta = 1,000,000` (high theta, but doesn't determine type)
 
 ---
 
