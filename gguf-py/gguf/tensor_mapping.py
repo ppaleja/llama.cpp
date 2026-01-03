@@ -616,6 +616,7 @@ class TensorNameMap:
             "encoder.layer.{bid}.attention.self.layer_norm_q",                # jina-bert-v2
             "transformer.layers.{bid}.attn.q_norm",                           # openelm
             "model.layers.layers.{bid}.mixer.q",                              # plamo2
+            "model.layers.layers.{bid}.mixer.q_norm",                         # plamo3
             "layers.{bid}.self_attn.q_norm",                                  # qwen3-embedding
             "model.layers.{bid}.attention.query_layernorm",                   # apertus
         ),
@@ -631,6 +632,7 @@ class TensorNameMap:
             "encoder.layer.{bid}.attention.self.layer_norm_k",                # jina-bert-v2
             "transformer.layers.{bid}.attn.k_norm",                           # openelm
             "model.layers.layers.{bid}.mixer.k",                              # plamo2
+            "model.layers.layers.{bid}.mixer.k_norm",                         # plamo3
             "layers.{bid}.self_attn.k_norm",                                  # qwen3-embedding
             "model.layers.{bid}.attention.key_layernorm",                     # apertus
         ),
@@ -1242,6 +1244,7 @@ class TensorNameMap:
         MODEL_TENSOR.V_MMPROJ: (
             "multi_modal_projector.linear_{bid}",
             "visual.merger.mlp.{bid}", # qwen2vl
+            "merger.mlp.{bid}",
         ),
 
         MODEL_TENSOR.V_MMPROJ_FC: (
@@ -1279,6 +1282,7 @@ class TensorNameMap:
             "visual.patch_embed.proj", # qwen2vl
             "vision_tower.patch_embed.proj", # kimi-vl
             "model.vision.patch_embedding.proj", # cogvlm
+            "siglip2.vision_model.embeddings.patch_embedding",
         ),
 
         MODEL_TENSOR.V_ENC_EMBD_NORM: (
@@ -1312,6 +1316,7 @@ class TensorNameMap:
             "vision_encoder.transformer.layers.{bid}.attention.wq", # pixtral
             "visual.blocks.{bid}.attn.q", # qwen2vl, generated
             "vision_tower.encoder.blocks.{bid}.wq", # kimi-vl, generated
+            "siglip2.vision_model.encoder.layers.{bid}.self_attn.q_proj", # youtuvl
         ),
 
         MODEL_TENSOR.V_ENC_ATTN_Q_NORM: (
@@ -1329,6 +1334,7 @@ class TensorNameMap:
             "vision_encoder.transformer.layers.{bid}.attention.wk", # pixtral
             "visual.blocks.{bid}.attn.k", # qwen2vl, generated
             "vision_tower.encoder.blocks.{bid}.wk", # kimi-vl, generated
+            "siglip2.vision_model.encoder.layers.{bid}.self_attn.k_proj",
         ),
 
         MODEL_TENSOR.V_ENC_ATTN_K_NORM: (
@@ -1346,6 +1352,7 @@ class TensorNameMap:
             "vision_encoder.transformer.layers.{bid}.attention.wv", # pixtral
             "visual.blocks.{bid}.attn.v", # qwen2vl, generated
             "vision_tower.encoder.blocks.{bid}.wv", # kimi-vl, generated
+            "siglip2.vision_model.encoder.layers.{bid}.self_attn.v_proj",
         ),
 
         MODEL_TENSOR.V_ENC_INPUT_NORM: (
@@ -1360,6 +1367,7 @@ class TensorNameMap:
             "visual.blocks.{bid}.norm1", # qwen2vl
             "vision_tower.encoder.blocks.{bid}.norm0", # kimi-vl (norm0/norm1)
             "model.vision.transformer.layers.{bid}.input_layernorm", # cogvlm
+            "siglip2.vision_model.encoder.layers.{bid}.layer_norm1",
         ),
 
         MODEL_TENSOR.V_ENC_ATTN_O: (
@@ -1375,6 +1383,7 @@ class TensorNameMap:
             "visual.blocks.{bid}.attn.proj", # qwen2vl
             "vision_tower.encoder.blocks.{bid}.wo", # kimi-vl
             "model.vision.transformer.layers.{bid}.attention.dense", # cogvlm
+            "siglip2.vision_model.encoder.layers.{bid}.self_attn.out_proj", # youtuvl
         ),
 
         MODEL_TENSOR.V_ENC_POST_ATTN_NORM: (
@@ -1389,6 +1398,7 @@ class TensorNameMap:
             "visual.blocks.{bid}.norm2", # qwen2vl
             "vision_tower.encoder.blocks.{bid}.norm1", # kimi-vl (norm0/norm1)
             "model.vision.transformer.layers.{bid}.post_attention_layernorm", # cogvlm
+            "siglip2.vision_model.encoder.layers.{bid}.layer_norm2",
         ),
 
         MODEL_TENSOR.V_ENC_FFN_UP: (
@@ -1404,6 +1414,7 @@ class TensorNameMap:
             "visual.blocks.{bid}.mlp.linear_fc1", # qwen3vl
             "vision_tower.encoder.blocks.{bid}.mlp.fc0", # kimi-vl (fc0/fc1)
             "model.vision.transformer.layers.{bid}.mlp.fc1", # cogvlm
+            "siglip2.vision_model.encoder.layers.{bid}.mlp.fc1",
         ),
 
         MODEL_TENSOR.V_ENC_FFN_GATE: (
@@ -1425,6 +1436,7 @@ class TensorNameMap:
             "visual.blocks.{bid}.mlp.linear_fc2", # qwen3vl
             "vision_tower.encoder.blocks.{bid}.mlp.fc1", # kimi-vl (fc0/fc1)
             "model.vision.transformer.layers.{bid}.mlp.fc2", # cogvlm
+            "siglip2.vision_model.encoder.layers.{bid}.mlp.fc2",
         ),
 
         MODEL_TENSOR.V_LAYER_SCALE_1: (
@@ -1451,6 +1463,7 @@ class TensorNameMap:
             "visual.merger.ln_q", # qwen2vl
             "vision_tower.encoder.final_layernorm", # kimi-vl
             "visual.post_layernorm", # glm4v
+            "siglip2.vision_model.post_layernorm",
         ),
 
         MODEL_TENSOR.V_MM_POST_NORM: (
@@ -1467,6 +1480,7 @@ class TensorNameMap:
             "multi_modal_projector.pre_norm",
             "pre_mm_projector_norm",
             "model.vision.linear_proj.norm1", # cogvlm
+            "merger.ln_q",
         ),
 
         MODEL_TENSOR.V_MM_SOFT_EMB_NORM: (
