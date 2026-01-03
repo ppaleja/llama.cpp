@@ -278,108 +278,209 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q
     const int64_t n_head_kv1 = n_head_kv / 2;             // 16 / 2 = 8
     const int64_t n_head_kv2 = n_head_kv / 2;             // 8
 
-    // Split Q: first n_head_q1 heads are Q1, remaining are Q2
-    // Q is [d, n_head, n_tokens]
-    ggml_tensor * Q1 = ggml_view_3d(ctx0, Q, n_embd_head, n_head_q1, n_tokens, Q->nb[1], Q->nb[2], 0);
-    ggml_tensor * Q2 = ggml_view_3d(ctx0, Q, n_embd_head, n_head_q2, n_tokens, Q->nb[1], Q->nb[2],
-                                    n_embd_head * n_head_q1 * ggml_element_size(Q));
+    const int64_t n_tokens = Q->ne[2];
 
-    // Split K/V: first half are K1/V1, second half are K2/V2
-    // K is [d, n_head_kv, n_kv]
-    ggml_tensor * K1 = ggml_view_3d(ctx0, K, n_embd_head, n_head_kv1, n_kv, K->nb[1], K->nb[2], 0);
-    ggml_tensor * K2 = ggml_view_3d(ctx0, K, n_embd_head, n_head_kv2, n_kv, K->nb[1], K->nb[2],
-                                    n_embd_head * n_head_kv1 * ggml_element_size(K));
+    // Q splitting using grouped rearrangement (matching HuggingFace)
+    // Q: 40 heads → 8 groups of 5 → Q1=first 4 per group (32), Q2=last 1 per group (8)
+    const int q_group_size = (int) grouped_ratio + 1;  // 5
+    const int num_groups_q = n_head / q_group_size;    // 8
 
-    ggml_tensor * V1 = ggml_view_3d(ctx0, V, n_embd_head, n_head_kv1, n_kv, V->nb[1], V->nb[2], 0);
-    ggml_tensor * V2 = ggml_view_3d(ctx0, V, n_embd_head, n_head_kv2, n_kv, V->nb[1], V->nb[2],
-                                    n_embd_head * n_head_kv1 * ggml_element_size(V));
+    // Reshape Q from [d, 40, N] to [d, 5, 8, N]
+    ggml_tensor * Q_4d = ggml_reshape_4d(ctx0, Q, n_embd_head, q_group_size, num_groups_q, n_tokens);
+
+    // Q1 = first 4 heads from each group → 32 heads
+    ggml_tensor * Q1_4d = ggml_view_4d(ctx0, Q_4d, n_embd_head, (int) grouped_ratio, num_groups_q, n_tokens,
+                                       Q_4d->nb[1], Q_4d->nb[2], Q_4d->nb[3], 0);
+    ggml_tensor * Q1    = ggml_cont_3d(ctx0, Q1_4d, n_embd_head, (int) grouped_ratio * num_groups_q, n_tokens);
+
+    // Q2 = last head from each group → 8 heads (strided view)
+    ggml_tensor * Q2_view = ggml_view_3d(ctx0, Q, n_embd_head, num_groups_q, n_tokens,
+                                         Q->nb[1] * q_group_size,                                    // stride = 5
+                                         Q->nb[2],
+                                         n_embd_head * (int) grouped_ratio * ggml_element_size(Q));  // offset = 4
+    ggml_tensor * Q2      = ggml_cont(ctx0, Q2_view);  // Make contiguous for concat
+
+    // Cast K/V to F32 for concat operations (CUDA requirement)
+    ggml_tensor * K_f32 = (K->type != GGML_TYPE_F32) ? ggml_cast(ctx0, K, GGML_TYPE_F32) : K;
+    ggml_tensor * V_f32 = (V->type != GGML_TYPE_F32) ? ggml_cast(ctx0, V, GGML_TYPE_F32) : V;
+
+    // Split K/V using grouped rearrangement (matching HuggingFace)
+    // K/V: 16 heads → 8 groups of 2 → K1/V1 = first head per group, K2/V2 = second head per group
+    const int kv_group_size = (int) k_ratio + 1;          // 2
+    const int kv_num_groups = n_head_kv / kv_group_size;  // 8
+
+    // K: [d, 16, N_kv] → [d, 2, 8, N_kv]
+    ggml_tensor * K_4d = ggml_reshape_4d(ctx0, K_f32, n_embd_head, kv_group_size, kv_num_groups, n_kv);
+
+    // K1 = first head from each group → 8 heads
+    ggml_tensor * K1_4d = ggml_view_4d(ctx0, K_4d, n_embd_head, (int) k_ratio, kv_num_groups, n_kv, K_4d->nb[1],
+                                       K_4d->nb[2], K_4d->nb[3], 0);
+    // Make contiguous first, then reshape is no longer needed - just use cont_3d directly
+    ggml_tensor * K1    = ggml_cont_3d(ctx0, K1_4d, n_embd_head, (int) k_ratio * kv_num_groups, n_kv);
+
+    // K2 = second head from each group → 8 heads (strided view)
+    ggml_tensor * K2_view = ggml_view_3d(ctx0, K_f32, n_embd_head, kv_num_groups, n_kv,
+                                         K_f32->nb[1] * kv_group_size,                             // stride = 2 heads
+                                         K_f32->nb[2],
+                                         n_embd_head * (int) k_ratio * ggml_element_size(K_f32));  // offset = 1 head
+    ggml_tensor * K2      = ggml_cont(ctx0, K2_view);                                              // Make contiguous
+
+    // Same for V
+    ggml_tensor * V_4d = ggml_reshape_4d(ctx0, V_f32, n_embd_head, kv_group_size, kv_num_groups, n_kv);
+
+    ggml_tensor * V1_4d = ggml_view_4d(ctx0, V_4d, n_embd_head, (int) k_ratio, kv_num_groups, n_kv, V_4d->nb[1],
+                                       V_4d->nb[2], V_4d->nb[3], 0);
+    // Make contiguous first, then reshape is no longer needed - just use cont_3d directly
+    ggml_tensor * V1    = ggml_cont_3d(ctx0, V1_4d, n_embd_head, (int) k_ratio * kv_num_groups, n_kv);
+
+    ggml_tensor * V2_view = ggml_view_3d(ctx0, V_f32, n_embd_head, kv_num_groups, n_kv, V_f32->nb[1] * kv_group_size,
+                                         V_f32->nb[2], n_embd_head * (int) k_ratio * ggml_element_size(V_f32));
+    ggml_tensor * V2      = ggml_cont(ctx0, V2_view);  // Make contiguous
+
+// Debugging output shapes
+#if 1
+    std::fprintf(stderr, "DEBUG LAYER %d:\n", il);
+    std::fprintf(stderr, "Q: %ld %ld %ld\n", Q->ne[0], Q->ne[1], Q->ne[2]);
+    std::fprintf(stderr, "Q1: %ld %ld %ld\n", Q1->ne[0], Q1->ne[1], Q1->ne[2]);
+    std::fprintf(stderr, "Q2: %ld %ld %ld\n", Q2->ne[0], Q2->ne[1], Q2->ne[2]);
+    std::fprintf(stderr, "K1: %ld %ld %ld\n", K1->ne[0], K1->ne[1], K1->ne[2]);
+    std::fprintf(stderr, "K2: %ld %ld %ld\n", K2->ne[0], K2->ne[1], K2->ne[2]);
+#endif
 
     // ========================================
-    // 3. Compute 4 attention outputs using build_attn_mha
+    // PHASE 4: Fuse Q/K/V (HuggingFace approach)
     // ========================================
-    // build_attn_mha handles the permutation and mul_mat internally
-    // It expects Q: [d, H_q, N_q], K: [d, H_kv, N_kv], V: [d, H_kv, N_kv]
-    // Returns: [d, N_q, H_q] (after permuting back)
-
     const float kq_scale =
         hparams.f_attention_scale == 0.0f ? 1.0f / sqrtf(float(n_embd_head)) : hparams.f_attention_scale;
 
-    // attn11 = attention(Q1, K1, V1) -> [d, n_tokens, 32]
-    ggml_tensor * attn11 = build_attn_mha(Q1, K1, V1, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
-    cb(attn11, "attn11", il);
+    // q_f = concat([Q1, Q2]) → [d, 40, N]
+    ggml_tensor * q_f = ggml_concat(ctx0, Q1, Q2, 1);
 
-    // attn12 = attention(Q1, K1, V2) -> [d, n_tokens, 32]
-    ggml_tensor * attn12 = build_attn_mha(Q1, K1, V2, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
-    cb(attn12, "attn12", il);
+    // k_f = concat([repeat_interleave(K1, 4), K2]) → [d, 40, N_kv]
+    // First repeat_interleave K1 from 8 heads to 32 heads
+    // IMPORTANT: HuggingFace uses repeat_interleave which expands [A B C D] -> [A A A A B B B B C C C C D D D D]
+    // NOT tiling which would be [A B C D A B C D A B C D A B C D]
+    ggml_tensor * K1_rep4 = repeat_interleave_heads(ctx0, K1, (int) grouped_ratio);
+    ggml_tensor * k_f     = ggml_concat(ctx0, K1_rep4, K2, 1);  // [d, 40, N_kv]  (K2 already contiguous)
 
-    // attn21 = attention(Q2, K2, V1) -> [d, n_tokens, 8]
-    ggml_tensor * attn21 = build_attn_mha(Q2, K2, V1, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
-    cb(attn21, "attn21", il);
+    // v1_f = concat([repeat_interleave(V1, 4), V1]) → [d, 40, N_kv]
+    ggml_tensor * V1_rep4 = repeat_interleave_heads(ctx0, V1, (int) grouped_ratio);
+    ggml_tensor * v1_f    = ggml_concat(ctx0, V1_rep4, V1, 1);  // [d, 40, N_kv]  (V1 already contiguous from cont_3d)
 
-    // attn22 = attention(Q2, K2, V2) -> [d, n_tokens, 8]
-    ggml_tensor * attn22 = build_attn_mha(Q2, K2, V2, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
-    cb(attn22, "attn22", il);
+    // v2_f = concat([repeat_interleave(V2, 4), V2]) → [d, 40, N_kv]  (V2 already contiguous)
+    ggml_tensor * V2_rep4 = repeat_interleave_heads(ctx0, V2, (int) grouped_ratio);
+    ggml_tensor * v2_f    = ggml_concat(ctx0, V2_rep4, V2, 1);  // [d, 40, N_kv]
 
-    // ========================================
-    // 4. Concatenate along head_dim: [d, N, H] -> [2d, N, H]
-    // ========================================
-    // attn1 = cat([attn11, attn12], dim=0) -> [2d, n_tokens, 32]
-    ggml_tensor * attn1 = ggml_new_tensor_3d(ctx0, attn11->type, n_embd_head * 2, n_tokens, n_head_q1);
-
-    // Copy attn11 to first half
-    ggml_tensor * attn1_dst1 =
-        ggml_view_3d(ctx0, attn1, n_embd_head, n_tokens, n_head_q1, attn1->nb[1], attn1->nb[2], 0);
-    ggml_build_forward_expand(gf, ggml_cpy(ctx0, attn11, attn1_dst1));
-
-    // Copy attn12 to second half
-    ggml_tensor * attn1_dst2 = ggml_view_3d(ctx0, attn1, n_embd_head, n_tokens, n_head_q1, attn1->nb[1], attn1->nb[2],
-                                            n_embd_head * ggml_element_size(attn1));
-    ggml_build_forward_expand(gf, ggml_cpy(ctx0, attn12, attn1_dst2));
-
-    // attn2 = cat([attn21, attn22], dim=0) -> [2d, n_tokens, 8]
-    ggml_tensor * attn2 = ggml_new_tensor_3d(ctx0, attn21->type, n_embd_head * 2, n_tokens, n_head_q2);
-
-    ggml_tensor * attn2_dst1 =
-        ggml_view_3d(ctx0, attn2, n_embd_head, n_tokens, n_head_q2, attn2->nb[1], attn2->nb[2], 0);
-    ggml_build_forward_expand(gf, ggml_cpy(ctx0, attn21, attn2_dst1));
-
-    ggml_tensor * attn2_dst2 = ggml_view_3d(ctx0, attn2, n_embd_head, n_tokens, n_head_q2, attn2->nb[1], attn2->nb[2],
-                                            n_embd_head * ggml_element_size(attn2));
-    ggml_build_forward_expand(gf, ggml_cpy(ctx0, attn22, attn2_dst2));
+#if 1
+    std::fprintf(stderr, "PHASE 4 - Fused tensors:\n");
+    std::fprintf(stderr, "q_f: %lld %lld %lld\n", (long long) q_f->ne[0], (long long) q_f->ne[1],
+                 (long long) q_f->ne[2]);
+    std::fprintf(stderr, "k_f: %lld %lld %lld\n", (long long) k_f->ne[0], (long long) k_f->ne[1],
+                 (long long) k_f->ne[2]);
+    std::fprintf(stderr, "v1_f: %lld %lld %lld\n", (long long) v1_f->ne[0], (long long) v1_f->ne[1],
+                 (long long) v1_f->ne[2]);
+    std::fprintf(stderr, "v2_f: %lld %lld %lld\n", (long long) v2_f->ne[0], (long long) v2_f->ne[1],
+                 (long long) v2_f->ne[2]);
+#endif
 
     // ========================================
-    // 5. Repeat attn2 by gqa_ratio to match attn1 heads
+    // PHASE 5: Two attention calls
     // ========================================
-    // attn2: [2d, n_tokens, 8] -> [2d, n_tokens, 32]
-    ggml_tensor * attn2_rep = ggml_repeat(ctx0, attn2, attn1);
+    // build_attn_mha flattens output to [d*heads, N] for o_proj
+    // We need to reshape back to [d, N, heads] for merge/split operations
 
     // ========================================
-    // 6. Differential: attn = attn1 - lambda_full * attn2
+    // PHASE 5: Two attention calls
+    // ========================================
+    // build_attn_mha flattens output to [d*heads, N]
+    // The memory layout is [d, heads, N] (Token 0 [Head 0, Head 1...])
+    // We MUST reshape to [d, heads, N] first to match layout
+
+    ggml_tensor * attn_1_flat = build_attn_mha(q_f, k_f, v1_f, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
+    cb(attn_1_flat, "attn_1_flat", il);
+
+    ggml_tensor * attn_2_flat = build_attn_mha(q_f, k_f, v2_f, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
+    cb(attn_2_flat, "attn_2_flat", il);
+
+    // Correct Reshape: [d, heads, N]
+    // nb[0]=4, nb[1]=d*4, nb[2]=d*heads*4 - matches attn_flat layout
+    ggml_tensor * attn_1 = ggml_reshape_3d(ctx0, attn_1_flat, n_embd_head, n_head, n_tokens);
+    ggml_tensor * attn_2 = ggml_reshape_3d(ctx0, attn_2_flat, n_embd_head, n_head, n_tokens);
+
+#if 1
+    std::fprintf(stderr, "PHASE 5 - Attention outputs (Corrected Shape):\n");
+    std::fprintf(stderr, "attn_1: %lld %lld %lld\n", (long long) attn_1->ne[0], (long long) attn_1->ne[1],
+                 (long long) attn_1->ne[2]);
+    std::fprintf(stderr, "attn_2: %lld %lld %lld\n", (long long) attn_2->ne[0], (long long) attn_2->ne[1],
+                 (long long) attn_2->ne[2]);
+#endif
+
+    // ========================================
+    // PHASE 6: Merge and split results
+    // ========================================
+    // merged = concat([attn_1, attn_2], dim=0)
+    // concat along dim 0 (d) -> [2d, heads, N]
+    ggml_tensor * merged_attn = ggml_concat(ctx0, attn_1, attn_2, 0);
+
+    // attn_o = merged[:, :32, :] -> [2d, 32, N]
+    // View stride nb[1] (heads) matches merged_attn
+    ggml_tensor * attn_o = ggml_view_3d(ctx0, merged_attn,
+                                        n_embd_head * 2,                     // ne[0] = 2d
+                                        (int) grouped_ratio * num_groups_q,  // ne[1] = 32 heads
+                                        n_tokens,                            // ne[2] = N
+                                        merged_attn->nb[1], merged_attn->nb[2],
+                                        0);                                  // offset 0
+
+    // attn_n_group = merged[:, 32:, :] -> [2d, 8, N]
+    ggml_tensor * attn_n_group = ggml_view_3d(ctx0, merged_attn,
+                                              n_embd_head * 2,  // ne[0] = 2d
+                                              num_groups_q,     // ne[1] = 8 heads
+                                              n_tokens,         // ne[2] = N
+                                              merged_attn->nb[1], merged_attn->nb[2],
+                                              n_embd_head * 2 * ((int) grouped_ratio * num_groups_q) *
+                                                  ggml_element_size(merged_attn));  // offset = 32 * stride_head
+
+    // attn_n = repeat(attn_n_group, 4) -> [2d, 32, N]
+    // Repeat along dim 1 (heads)
+    ggml_tensor * attn_n_target =
+        ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_embd_head * 2, (int) grouped_ratio * num_groups_q, n_tokens);
+    ggml_tensor * attn_n = ggml_repeat(ctx0, attn_n_group, attn_n_target);
+
+#if 1
+    std::fprintf(stderr, "PHASE 6 - Split:\n");
+    std::fprintf(stderr, "merged_attn: %lld %lld %lld\n", (long long) merged_attn->ne[0],
+                 (long long) merged_attn->ne[1], (long long) merged_attn->ne[2]);
+    std::fprintf(stderr, "attn_o: %lld %lld %lld\n", (long long) attn_o->ne[0], (long long) attn_o->ne[1],
+                 (long long) attn_o->ne[2]);
+    std::fprintf(stderr, "attn_n: %lld %lld %lld\n", (long long) attn_n->ne[0], (long long) attn_n->ne[1],
+                 (long long) attn_n->ne[2]);
+#endif
+
+    // PHASE 7: Differential
     // ========================================
     // lambda_full = lambda_diff + lambda_init
-    ggml_tensor * attn2_scaled_diff = ggml_mul(ctx0, attn2_rep, lambda_diff);
-    ggml_tensor * attn2_scaled_init = ggml_scale(ctx0, attn2_rep, lambda_init);
-    ggml_tensor * attn2_scaled      = ggml_add(ctx0, attn2_scaled_diff, attn2_scaled_init);
+    ggml_tensor * attn_n_scaled_diff = ggml_mul(ctx0, attn_n, lambda_diff);
+    ggml_tensor * attn_n_scaled_init = ggml_scale(ctx0, attn_n, lambda_init);
+    ggml_tensor * attn_n_scaled      = ggml_add(ctx0, attn_n_scaled_diff, attn_n_scaled_init);
 
-    ggml_tensor * attn_diff = ggml_sub(ctx0, attn1, attn2_scaled);
+    ggml_tensor * attn_diff = ggml_sub(ctx0, attn_o, attn_n_scaled);
+    // attn_diff: [2d, 32, N]
 
     // ========================================
-    // 7. SubLayerNorm (RMSNorm on 2*d dimension)
+    // PHASE 8: SubLayerNorm - BEFORE flattening!
     // ========================================
+    // HuggingFace: self.subln(attn_output) where attn_output is [bsz, q_len, 32, 2d]
+    // The subln weight is [2d] = [256], normalizing across the head_dim*2 dimension
+    // ggml_rms_norm normalizes along ne[0] which is 2d (256) - CORRECT!
     ggml_tensor * attn_norm = ggml_rms_norm(ctx0, attn_diff, hparams.f_norm_rms_eps);
+    // attn_sub_norm has shape [2d] = [256], broadcast across heads and tokens
     attn_norm               = ggml_mul(ctx0, attn_norm, attn_sub_norm);
 
-    // ========================================
-    // 8. Scale: attn = attn * (1 - lambda_init)
-    // ========================================
+    // Final scale: (1 - lambda_init)
     ggml_tensor * attn_scaled = ggml_scale(ctx0, attn_norm, 1.0f - lambda_init);
 
-    // ========================================
-    // 9. Reshape for output projection
-    // ========================================
-    // [2d, n_tokens, 32] -> permute to [2d, 32, n_tokens] -> flatten to [2d*32, n_tokens]
-    ggml_tensor * attn_permuted = ggml_permute(ctx0, attn_scaled, 0, 2, 1, 3);
-    ggml_tensor * attn_flat     = ggml_cont_2d(ctx0, attn_permuted, n_embd_head * 2 * n_head_q1, n_tokens);
+    // NOW flatten for output projection: [2d, 32, N] -> [2d*32, N] = [8192, N]
+    ggml_tensor * attn_flat = ggml_cont_2d(ctx0, attn_scaled, n_embd_head * 2 * n_head_q1, n_tokens);
 
     return attn_flat;
 }
