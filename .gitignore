@@ -73,7 +73,6 @@
 !/models/.editorconfig
 !/models/ggml-vocab-*.gguf*
 !/models/templates
-/motif-model-relevant-files
 
 # Zig
 /zig-out/
