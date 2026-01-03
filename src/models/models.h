@@ -312,10 +312,6 @@ struct llm_build_llama_iswa : public llm_graph_context {
     llm_build_llama_iswa(const llama_model & model, const llm_graph_params & params);
 };
 
-struct llm_build_maincoder : public llm_graph_context {
-    llm_build_maincoder(const llama_model & model, const llm_graph_params & params);
-};
-
 struct llm_build_mamba : public llm_graph_context_mamba {
     llm_build_mamba(const llama_model & model, const llm_graph_params & params);
 };
@@ -336,6 +332,47 @@ struct llm_build_mistral3 : public llm_graph_context {
     llm_build_mistral3(const llama_model & model, const llm_graph_params & params);
 };
 
+struct llm_build_motif : public llm_graph_context {
+    llm_build_motif(const llama_model & model, const llm_graph_params & params);
+
+private:
+    ggml_tensor * build_grouped_diff_attn(
+        ggml_tensor * input_cur,
+        llm_graph_input_attn_kv * inp_attn,
+        ggml_tensor * wq, ggml_tensor * wk, ggml_tensor * wv, ggml_tensor * wo,
+        ggml_tensor * lambda_q1, ggml_tensor * lambda_k1,
+        ggml_tensor * lambda_q2, ggml_tensor * lambda_k2,
+        ggml_tensor * attn_sub_norm,
+        ggml_tensor * inp_pos, ggml_tensor * rope_factors,
+        float lambda_init,
+        uint32_t num_noise_heads, float grouped_ratio, float k_ratio,
+        int il) const;
+
+    ggml_tensor * build_grouped_diff_attention_core(
+        ggml_tensor * Q, ggml_tensor * K, ggml_tensor * V,
+        ggml_tensor * kq_mask,
+        ggml_tensor * lambda_q1, ggml_tensor * lambda_k1,
+        ggml_tensor * lambda_q2, ggml_tensor * lambda_k2,
+        ggml_tensor * attn_sub_norm,
+        float lambda_init,
+        uint32_t num_noise_heads, float grouped_ratio, float k_ratio,
+        int il) const;
+
+    ggml_tensor * build_polynorm_ffn(
+        ggml_tensor * cur,
+        ggml_tensor * ffn_gate, ggml_tensor * ffn_gate_b,
+        ggml_tensor * ffn_up, ggml_tensor * ffn_up_b,
+        ggml_tensor * ffn_down, ggml_tensor * ffn_down_b,
+        ggml_tensor * polynorm_w, ggml_tensor * polynorm_b,
+        int il) const;
+
+    ggml_tensor * build_polynorm(
+        ggml_tensor * x,
+        ggml_tensor * w, ggml_tensor * b,
+        int il) const;
+};
+
+template <bool iswa>
 struct llm_build_modern_bert : public llm_graph_context {
     llm_build_modern_bert(const llama_model & model, const llm_graph_params & params);
 };
@@ -407,11 +444,6 @@ struct llm_build_plamo2 : public llm_graph_context_mamba {
 
 struct llm_build_plamo : public llm_graph_context {
     llm_build_plamo(const llama_model & model, const llm_graph_params & params);
-};
-
-template <bool iswa>
-struct llm_build_plamo3 : public llm_graph_context {
-    llm_build_plamo3(const llama_model & model, const llm_graph_params & params);
 };
 
 struct llm_build_plm : public llm_graph_context {

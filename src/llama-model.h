@@ -119,7 +119,6 @@ enum llm_type {
     LLM_TYPE_31B_A3_5B,
     LLM_TYPE_80B_A3B, // Qwen3 Next
     LLM_TYPE_100B_A6B,
-    LLM_TYPE_102B_A12B, // Solar-Open
     LLM_TYPE_106B_A12B, // GLM-4.5-Air
     LLM_TYPE_230B_A10B, // Minimax M2
     LLM_TYPE_235B_A22B,
@@ -213,6 +212,13 @@ struct llama_layer {
     struct ggml_tensor * attn_q_a_norm   = nullptr;
     struct ggml_tensor * attn_kv_a_norm  = nullptr;
     struct ggml_tensor * attn_sub_norm   = nullptr;
+
+    // motif differential attention
+    struct ggml_tensor * attn_lambda_q1 = nullptr;
+    struct ggml_tensor * attn_lambda_k1 = nullptr;
+    struct ggml_tensor * attn_lambda_q2 = nullptr;
+    struct ggml_tensor * attn_lambda_k2 = nullptr;
+
     struct ggml_tensor * attn_post_norm  = nullptr;
     struct ggml_tensor * ffn_sub_norm    = nullptr;
     struct ggml_tensor * attn_norm_cross = nullptr;
@@ -300,6 +306,10 @@ struct llama_layer {
     struct ggml_tensor * ffn_up_b   = nullptr; // b3
     struct ggml_tensor * ffn_act    = nullptr;
     struct ggml_tensor * ffn_exp_probs_b = nullptr;
+
+    // motif polynorm
+    struct ggml_tensor * ffn_polynorm_w = nullptr;
+    struct ggml_tensor * ffn_polynorm_b = nullptr;
 
     // mamba proj
     struct ggml_tensor * ssm_in  = nullptr;
@@ -467,6 +477,8 @@ struct llama_model {
     struct ggml_tensor * dense_2_out_layers = nullptr;
     struct ggml_tensor * dense_3_out_layers = nullptr;
 
+    llama_model_params params;
+
     // gguf metadata
     std::unordered_map<std::string, std::string> gguf_kv;
 
@@ -475,9 +487,6 @@ struct llama_model {
 
     // for quantize-stats only
     std::vector<std::pair<std::string, struct ggml_tensor *>> tensors_by_name;
-
-    // for keeping track of extra nodes used by lora adapters
-    uint32_t n_lora_nodes = 0;
 
     int64_t t_load_us  = 0;
     int64_t t_start_us = 0;
@@ -499,9 +508,6 @@ struct llama_model {
     size_t size() const; // file size
     size_t n_tensors() const;
     size_t n_devices() const;
-
-    uint32_t n_gpu_layers() const;
-    llama_split_mode split_mode() const;
 
     std::map<ggml_backend_buffer_type_t, size_t> memory_breakdown() const;
 
@@ -531,8 +537,6 @@ struct llama_model {
     ggml_cgraph * build_graph(const llm_graph_params & params) const;
 
 private:
-    llama_model_params params;
-
     struct impl;
     std::unique_ptr<impl> pimpl;
 };

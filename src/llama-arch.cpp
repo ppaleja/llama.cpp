@@ -42,7 +42,6 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_PHIMOE,           "phimoe"           },
     { LLM_ARCH_PLAMO,            "plamo"            },
     { LLM_ARCH_PLAMO2,           "plamo2"           },
-    { LLM_ARCH_PLAMO3,           "plamo3"           },
     { LLM_ARCH_CODESHELL,        "codeshell"        },
     { LLM_ARCH_ORION,            "orion"            },
     { LLM_ARCH_INTERNLM2,        "internlm2"        },
@@ -118,7 +117,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_MISTRAL3,         "mistral3"         },
     { LLM_ARCH_MIMO2,            "mimo2"           },
     { LLM_ARCH_LLAMA_EMBED,      "llama-embed"      },
-    { LLM_ARCH_MAINCODER,        "maincoder"        },
+    { LLM_ARCH_MOTIF,            "motif"            },
     { LLM_ARCH_UNKNOWN,          "(unknown)"        },
 };
 
@@ -192,6 +191,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
 
     { LLM_KV_ATTENTION_HEAD_COUNT,                   "%s.attention.head_count"                   },
     { LLM_KV_ATTENTION_HEAD_COUNT_KV,                "%s.attention.head_count_kv"                },
+    { LLM_KV_ATTENTION_GROUPED_RATIO,              "%s.attention.grouped_ratio"                },
     { LLM_KV_ATTENTION_MAX_ALIBI_BIAS,               "%s.attention.max_alibi_bias"               },
     { LLM_KV_ATTENTION_CLAMP_KQV,                    "%s.attention.clamp_kqv"                    },
     { LLM_KV_ATTENTION_KEY_LENGTH,                   "%s.attention.key_length"                   },
@@ -495,6 +495,12 @@ static const std::map<llm_tensor, const char *> LLM_TENSOR_NAMES = {
     { LLM_TENSOR_VISEXP_FFN_GATE,                        "blk.%d.vis_gate" },
     { LLM_TENSOR_VISEXP_FFN_DOWN,                        "blk.%d.vis_down" },
     { LLM_TENSOR_VISEXP_FFN_UP,                          "blk.%d.vis_up" },
+    { LLM_TENSOR_ATTN_LAMBDA_Q1,                     "blk.%d.attn_lambda_q1" },
+    { LLM_TENSOR_ATTN_LAMBDA_K1,                     "blk.%d.attn_lambda_k1" },
+    { LLM_TENSOR_ATTN_LAMBDA_Q2,                     "blk.%d.attn_lambda_q2" },
+    { LLM_TENSOR_ATTN_LAMBDA_K2,                     "blk.%d.attn_lambda_k2" },
+    { LLM_TENSOR_FFN_POLYNORM_W,                     "blk.%d.ffn_polynorm_w" },
+    { LLM_TENSOR_FFN_POLYNORM_B,                     "blk.%d.ffn_polynorm_b" },
 };
 
 static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
@@ -1078,22 +1084,6 @@ static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
                 LLM_TENSOR_SSM_C_NORM,
                 LLM_TENSOR_ATTN_POST_NORM,
                 LLM_TENSOR_FFN_POST_NORM,
-            };
-        case LLM_ARCH_PLAMO3:
-            return {
-                LLM_TENSOR_TOKEN_EMBD,
-                LLM_TENSOR_OUTPUT_NORM,
-                LLM_TENSOR_OUTPUT,
-                LLM_TENSOR_ATTN_NORM,
-                LLM_TENSOR_ATTN_QKV,
-                LLM_TENSOR_ATTN_Q_NORM,
-                LLM_TENSOR_ATTN_K_NORM,
-                LLM_TENSOR_ATTN_OUT,
-                LLM_TENSOR_ATTN_POST_NORM,
-                LLM_TENSOR_FFN_NORM,
-                LLM_TENSOR_FFN_POST_NORM,
-                LLM_TENSOR_FFN_DOWN,
-                LLM_TENSOR_FFN_UP,
             };
         case LLM_ARCH_CODESHELL:
             return {
@@ -2230,27 +2220,34 @@ static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
                 LLM_TENSOR_FFN_UP_EXPS,
                 LLM_TENSOR_FFN_EXP_PROBS_B,
             };
-        case LLM_ARCH_GPTJ:
-        case LLM_ARCH_UNKNOWN:
-            return {
-                LLM_TENSOR_TOKEN_EMBD,
-            };
-        case LLM_ARCH_MAINCODER:
+        case LLM_ARCH_MOTIF:
             return {
                 LLM_TENSOR_TOKEN_EMBD,
                 LLM_TENSOR_OUTPUT_NORM,
                 LLM_TENSOR_OUTPUT,
+                LLM_TENSOR_ROPE_FREQS,
                 LLM_TENSOR_ATTN_NORM,
                 LLM_TENSOR_ATTN_Q,
-                LLM_TENSOR_ATTN_Q_NORM,
                 LLM_TENSOR_ATTN_K,
-                LLM_TENSOR_ATTN_K_NORM,
                 LLM_TENSOR_ATTN_V,
                 LLM_TENSOR_ATTN_OUT,
+                LLM_TENSOR_ATTN_ROT_EMBD,
+                LLM_TENSOR_ATTN_SUB_NORM,
+                LLM_TENSOR_ATTN_LAMBDA_Q1,
+                LLM_TENSOR_ATTN_LAMBDA_K1,
+                LLM_TENSOR_ATTN_LAMBDA_Q2,
+                LLM_TENSOR_ATTN_LAMBDA_K2,
                 LLM_TENSOR_FFN_NORM,
                 LLM_TENSOR_FFN_GATE,
                 LLM_TENSOR_FFN_DOWN,
                 LLM_TENSOR_FFN_UP,
+                LLM_TENSOR_FFN_POLYNORM_W,
+                LLM_TENSOR_FFN_POLYNORM_B,
+            };
+        case LLM_ARCH_GPTJ:
+        case LLM_ARCH_UNKNOWN:
+            return {
+                LLM_TENSOR_TOKEN_EMBD,
             };
         default:
             GGML_ABORT("unknown architecture for tensor mapping");
@@ -2385,6 +2382,12 @@ static const std::map<llm_tensor, llm_tensor_info> LLM_TENSOR_INFOS = {
     {LLM_TENSOR_LAYER_OUT_NORM,             {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
     {LLM_TENSOR_ATTN_Q_A_NORM,              {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
     {LLM_TENSOR_ATTN_KV_A_NORM,             {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
+    {LLM_TENSOR_ATTN_LAMBDA_Q1,             {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
+    {LLM_TENSOR_ATTN_LAMBDA_K1,             {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
+    {LLM_TENSOR_ATTN_LAMBDA_Q2,             {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
+    {LLM_TENSOR_ATTN_LAMBDA_K2,             {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
+    {LLM_TENSOR_FFN_POLYNORM_W,             {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
+    {LLM_TENSOR_FFN_POLYNORM_B,             {LLM_TENSOR_LAYER_REPEATING, GGML_OP_ADD}},
     {LLM_TENSOR_ATTN_SUB_NORM,              {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
     {LLM_TENSOR_FFN_SUB_NORM,               {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
     {LLM_TENSOR_DEC_ATTN_NORM,              {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},
