@@ -77,6 +77,9 @@ llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_para
         lambda_init = std::stof(it_lambda_init->second);
     }
 
+    std::fprintf(stderr, "MOTIF PARAMS: grouped_ratio=%.2f, k_ratio=%.2f, num_noise_heads=%d, lambda_init=%.4f\n",
+                 grouped_ratio, k_ratio, num_noise_heads, lambda_init);
+
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
@@ -248,6 +251,12 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attn(ggml_tensor *            
 
     // Apply output projection
     ggml_tensor * output = build_lora_mm(wo, attn_output);
+#if 1
+    std::fprintf(stderr, "PHASE 8 - Output Projection:\n");
+    std::fprintf(stderr, "attn_output (input to wo): %lld %lld %lld\n", (long long) attn_output->ne[0],
+                 (long long) attn_output->ne[1], (long long) attn_output->ne[2]);
+    std::fprintf(stderr, "wo (weight): %lld %lld\n", (long long) wo->ne[0], (long long) wo->ne[1]);
+#endif
     cb(output, "attn_output_proj", il);
 
     return output;
@@ -293,6 +302,48 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q
     const int64_t n_head      = hparams.n_head(il);     // Total Q heads (40)
     const int64_t n_head_kv   = hparams.n_head_kv(il);  // Total KV heads (16)
     const int64_t n_kv        = K->ne[2];               // KV cache length
+
+    // ========================================
+    // BYPASS MODE: Use standard attention to verify rest of model works
+    // Set this to 1 to completely skip Motif-specific logic
+    // ========================================
+#define MOTIF_BYPASS_STANDARD_ATTN 0
+#if MOTIF_BYPASS_STANDARD_ATTN
+    // Standard GQA: Q[d,40,N] @ K[d,16,n_kv] -> repeat K to 40 heads -> attn
+    const float   kq_scale = 1.0f / sqrtf(float(n_embd_head));
+    const int64_t n_tokens = Q->ne[2];
+
+    // Repeat K/V to match Q heads (GQA)
+    ggml_tensor * K_rep_target = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_embd_head, n_head, n_kv);
+    ggml_tensor * K_rep        = ggml_repeat(ctx0, K, K_rep_target);
+    ggml_tensor * V_rep        = ggml_repeat(ctx0, V, K_rep_target);
+
+    // Standard attention
+    ggml_tensor * attn_out = build_attn_mha(Q, K_rep, V_rep, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
+
+    // Apply SubLayerNorm to match expected dimensions
+    // Output of build_attn_mha: [d*40, N]
+    // But Motif wo expects [d*2*32, N] = [8192, N]
+    // We need to project from [d*40, N] = [5120, N] to [8192, N]
+    // This won't work directly. Just return what we have for testing.
+
+    std::fprintf(stderr, "BYPASS MODE: Using standard attention, output shape [%lld, %lld]\n",
+                 (long long) attn_out->ne[0], (long long) attn_out->ne[1]);
+
+    // Just return standard attention output (will cause dimension mismatch but shows if it runs)
+    return attn_out;
+#endif
+
+#if 1
+    std::fprintf(stderr, "RAW INPUT SHAPES (layer %d):\n", il);
+    std::fprintf(stderr, "K (raw): %lld %lld %lld\n", (long long) K->ne[0], (long long) K->ne[1], (long long) K->ne[2]);
+    std::fprintf(stderr, "V (raw): %lld %lld %lld\n", (long long) V->ne[0], (long long) V->ne[1], (long long) V->ne[2]);
+    std::fprintf(stderr, "n_head_kv (expected): %lld\n", (long long) n_head_kv);
+    // DIAGNOSTIC: Print Q tensor name to verify it's graph-specific
+    if (il == 0) {
+        std::fprintf(stderr, "CRITICAL DIAG - Q tensor name: %s, ptr: %p\n", Q->name, (void *) Q);
+    }
+#endif
 
     // Q: [d, n_head, n_tokens] after RoPE
     // K: [d, n_head_kv, n_kv]
