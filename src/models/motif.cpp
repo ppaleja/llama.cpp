@@ -1,11 +1,8 @@
-#include "models.h"
 #include "../llama-kv-cache.h"
+#include "models.h"
 
-llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_params & params)
-    : llm_graph_context(params) {
-    const int64_t n_embd_head = hparams.n_embd_head_v;
-    const int64_t n_embd_gqa = hparams.n_embd_v_gqa_max();
-
+llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_params & params) :
+    llm_graph_context(params) {
     ggml_tensor * cur;
     ggml_tensor * inpL;
 
@@ -17,13 +14,11 @@ llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_para
     llm_graph_input_attn_kv * inp_attn = build_attn_inp_kv();
 
     // Get Motif hyperparameters from GGUF metadata
-    // These are stored as metadata during conversion
-    float grouped_ratio = 4.0f;  // Default from Motif-2-12.7B
-    float k_ratio = 4.0f;        // Default from Motif-2-12.7B
-    uint32_t num_noise_heads = 8; // Default from Motif-2-12.7B
-    float lambda_init = 1.0f;    // Default
+    float    grouped_ratio   = 4.0f;  // Default from Motif-2-12.7B
+    float    k_ratio         = 1.0f;  // Default
+    uint32_t num_noise_heads = 8;     // Default from Motif-2-12.7B
+    float    lambda_init     = 1.0f;  // Default
 
-    // Try to get from metadata (these would be set during model loading)
     auto it_grouped_ratio = model.gguf_kv.find("motif.attention.grouped_ratio");
     if (it_grouped_ratio != model.gguf_kv.end()) {
         grouped_ratio = std::stof(it_grouped_ratio->second);
@@ -50,67 +45,48 @@ llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_para
         ggml_tensor * inpSA = inpL;
 
         // norm
-        cur = build_norm(inpL,
-                model.layers[il].attn_norm, NULL,
-                LLM_NORM_RMS, il);
+        cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
         cb(cur, "attn_norm", il);
 
         // self-attention with GroupedDifferentialAttention
         {
             ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
-            cur = build_grouped_diff_attn(
-                cur,  // input activations (post-attn-norm)
-                inp_attn,
-                model.layers[il].wq, model.layers[il].wk, model.layers[il].wv, model.layers[il].wo,
-                model.layers[il].attn_lambda_q1, model.layers[il].attn_lambda_k1,
-                model.layers[il].attn_lambda_q2, model.layers[il].attn_lambda_k2,
-                model.layers[il].attn_sub_norm,
-                inp_pos, rope_factors,
-                lambda_init,
-                (uint32_t)num_noise_heads, grouped_ratio, k_ratio,
-                il);
+            cur = build_grouped_diff_attn(cur, inp_attn, model.layers[il].wq, model.layers[il].wk, model.layers[il].wv,
+                                          model.layers[il].wo, model.layers[il].attn_lambda_q1,
+                                          model.layers[il].attn_lambda_k1, model.layers[il].attn_lambda_q2,
+                                          model.layers[il].attn_lambda_k2, model.layers[il].attn_sub_norm, inp_pos,
+                                          rope_factors, lambda_init, num_noise_heads, grouped_ratio, k_ratio, il);
             cb(cur, "attn_out", il);
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
-            cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
+            cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }
         ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
         cb(ffn_inp, "ffn_inp", il);
 
-        // feed-forward network with PolyNorm activation
-        cur = build_norm(ffn_inp,
-                model.layers[il].ffn_norm, NULL,
-                LLM_NORM_RMS, il);
+        // feed-forward network
+        cur = build_norm(ffn_inp, model.layers[il].ffn_norm, NULL, LLM_NORM_RMS, il);
         cb(cur, "ffn_norm", il);
 
-        cur = build_polynorm_ffn(
-            cur,
-            model.layers[il].ffn_gate, NULL,
-            model.layers[il].ffn_up, NULL,
-            model.layers[il].ffn_down, NULL,
-            model.layers[il].ffn_polynorm_w,
-            model.layers[il].ffn_polynorm_b,
-            il);
+        cur = build_polynorm_ffn(cur, model.layers[il].ffn_gate, NULL, model.layers[il].ffn_up, NULL,
+                                 model.layers[il].ffn_down, NULL, model.layers[il].ffn_polynorm_w,
+                                 model.layers[il].ffn_polynorm_b, il);
         cb(cur, "ffn_out", il);
 
         cur = ggml_add(ctx0, cur, ffn_inp);
         cb(cur, "l_out", il);
 
-        // input for next layer
         inpL = cur;
     }
 
     cur = inpL;
 
-    cur = build_norm(cur,
-            model.output_norm, NULL,
-            LLM_NORM_RMS, -1);
+    cur = build_norm(cur, model.output_norm, NULL, LLM_NORM_RMS, -1);
     cb(cur, "result_norm", -1);
 
-    // lm_head
     cur = build_lora_mm(model.output, cur);
     cb(cur, "result_output", -1);
 
@@ -120,72 +96,69 @@ llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_para
 }
 
 // Helper function: build GroupedDifferentialAttention
-ggml_tensor * llm_build_motif::build_grouped_diff_attn(
-        ggml_tensor * input_cur,  // The input activations (post-norm)
-        llm_graph_input_attn_kv * inp_attn,
-        ggml_tensor * wq, ggml_tensor * wk, ggml_tensor * wv, ggml_tensor * wo,
-        ggml_tensor * lambda_q1, ggml_tensor * lambda_k1,
-        ggml_tensor * lambda_q2, ggml_tensor * lambda_k2,
-        ggml_tensor * attn_sub_norm,
-        ggml_tensor * inp_pos, ggml_tensor * rope_factors,
-        float lambda_init,
-        uint32_t num_noise_heads, float grouped_ratio, float k_ratio,
-        int il) const {
-
+ggml_tensor * llm_build_motif::build_grouped_diff_attn(ggml_tensor *             input_cur,
+                                                       llm_graph_input_attn_kv * inp_attn,
+                                                       ggml_tensor *             wq,
+                                                       ggml_tensor *             wk,
+                                                       ggml_tensor *             wv,
+                                                       ggml_tensor *             wo,
+                                                       ggml_tensor *             lambda_q1,
+                                                       ggml_tensor *             lambda_k1,
+                                                       ggml_tensor *             lambda_q2,
+                                                       ggml_tensor *             lambda_k2,
+                                                       ggml_tensor *             attn_sub_norm,
+                                                       ggml_tensor *             inp_pos,
+                                                       ggml_tensor *             rope_factors,
+                                                       float                     lambda_init,
+                                                       uint32_t                  num_noise_heads,
+                                                       float                     grouped_ratio,
+                                                       float                     k_ratio,
+                                                       int                       il) const {
     const int64_t n_embd_head = hparams.n_embd_head_v;
-    const int64_t n_embd_gqa = hparams.n_embd_v_gqa(il);
-    const int64_t n_head = hparams.n_head(il);
-    const int64_t n_head_kv = hparams.n_head_kv(il);
+    const int64_t n_head      = hparams.n_head(il);
+    const int64_t n_head_kv   = hparams.n_head_kv(il);
 
     // Compute Q/K/V projections
     ggml_tensor * Qcur = build_lora_mm(wq, input_cur);
-    cb(Qcur, "Qcur_proj", il);
-
     ggml_tensor * Kcur = build_lora_mm(wk, input_cur);
-    cb(Kcur, "Kcur_proj", il);
-
     ggml_tensor * Vcur = build_lora_mm(wv, input_cur);
+
+    cb(Qcur, "Qcur_proj", il);
+    cb(Kcur, "Kcur_proj", il);
     cb(Vcur, "Vcur_proj", il);
 
-    // Reshape for attention: [n_embd_head, n_head, n_tokens]
+    // Reshape for RoPE: [n_embd_head, n_head, n_tokens]
     Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens);
     Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
     Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
 
-    // Apply RoPE (Normal RoPE type for Motif)
-    Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, rope_factors,
-                         n_rot, LLAMA_ROPE_TYPE_NORM, n_ctx_orig, freq_base, freq_scale,
-                         ext_factor, attn_factor, beta_fast, beta_slow);
-
-    Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, rope_factors,
-                         n_rot, LLAMA_ROPE_TYPE_NORM, n_ctx_orig, freq_base, freq_scale,
-                         ext_factor, attn_factor, beta_fast, beta_slow);
+    // Apply RoPE
+    Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, rope_factors, n_rot, LLAMA_ROPE_TYPE_NORM, n_ctx_orig, freq_base,
+                         freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
+    Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, rope_factors, n_rot, LLAMA_ROPE_TYPE_NORM, n_ctx_orig, freq_base,
+                         freq_scale, ext_factor, attn_factor, beta_fast, beta_slow);
 
     cb(Qcur, "Qcur_rope", il);
     cb(Kcur, "Kcur_rope", il);
 
-    // Store K/V to KV cache
+    // Store K/V to cache
     const auto * mctx_cur = inp_attn->mctx;
     {
         const auto & k_idxs = inp_attn->get_k_idxs();
         const auto & v_idxs = inp_attn->get_v_idxs();
-
         ggml_build_forward_expand(gf, mctx_cur->cpy_k(ctx0, Kcur, k_idxs, il));
         ggml_build_forward_expand(gf, mctx_cur->cpy_v(ctx0, Vcur, v_idxs, il));
     }
 
-    // Get cached K/V for attention computation
+    // Get cached K/V
     ggml_tensor * Kcached = mctx_cur->get_k(ctx0, il);
     ggml_tensor * Vcached = mctx_cur->get_v(ctx0, il);
 
-    // Implement GroupedDifferentialAttention logic
+    // Use standard llama.cpp attention helper which handles all the details
+    // For Motif, we need to bypass the standard attention and implement GDA manually
     ggml_tensor * attn_output = build_grouped_diff_attention_core(
-        Qcur, Kcached, Vcached,
-        inp_attn->get_kq_mask(),
-        lambda_q1, lambda_k1, lambda_q2, lambda_k2,
-        attn_sub_norm,
-        lambda_init, num_noise_heads, grouped_ratio, k_ratio,
-        il);
+        Qcur, Kcached, Vcached, inp_attn->get_kq_mask(), lambda_q1, lambda_k1, lambda_q2, lambda_k2, attn_sub_norm,
+        lambda_init, num_noise_heads, grouped_ratio, k_ratio, il);
 
     cb(attn_output, "attn_diff_out", il);
 
@@ -295,17 +268,14 @@ ggml_tensor * llm_build_motif::build_polynorm_ffn(
         }
     }
 
-    // Apply PolyNorm activation to gate output
     if (gate_out) {
         gate_out = build_polynorm(gate_out, polynorm_w, polynorm_b, il);
         cb(gate_out, "ffn_gate_polynorm", il);
 
-        // Element-wise multiply with up projection (swiglu-style)
         tmp = ggml_mul(ctx0, gate_out, tmp);
         cb(tmp, "ffn_gate_up_mul", il);
     }
 
-    // Down projection
     cur = build_lora_mm(ffn_down, tmp);
     cb(cur, "ffn_down", il);
 
