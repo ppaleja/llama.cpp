@@ -538,10 +538,11 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q
                                                   ggml_element_size(merged_attn));  // offset = 32 * stride_head
 
     // attn_n = repeat(attn_n_group, 4) -> [2d, 32, N]
-    // Repeat along dim 1 (heads)
-    ggml_tensor * attn_n_target =
-        ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_embd_head * 2, (int) grouped_ratio * num_groups_q, n_tokens);
-    ggml_tensor * attn_n = ggml_repeat(ctx0, attn_n_group, attn_n_target);
+    // FIX: Use repeat_interleave_heads instead of ggml_repeat (tile)
+    // HuggingFace uses repeat_interleave, so we must too to preserve head alignment
+    // FIX: attn_n_group is a non-contiguous view, must make contiguous first
+    ggml_tensor * attn_n_group_cont = ggml_cont(ctx0, attn_n_group);
+    ggml_tensor * attn_n            = repeat_interleave_heads(ctx0, attn_n_group_cont, (int) grouped_ratio);
 
 #if 1
     std::fprintf(stderr, "PHASE 6 - Split:\n");
@@ -613,10 +614,17 @@ ggml_tensor * llm_build_motif::build_polynorm_ffn(ggml_tensor * cur,
     }
 
     if (gate_out) {
-        gate_out = build_polynorm(gate_out, polynorm_w, polynorm_b, il);
-        cb(gate_out, "ffn_gate_polynorm", il);
+        // FIX: Upcast to F32 for PolyNorm numerical stability (x^3 term)
+        ggml_tensor * gate_out_f32 = ggml_cast(ctx0, gate_out, GGML_TYPE_F32);
 
-        tmp = ggml_mul(ctx0, gate_out, tmp);
+        ggml_tensor * poly_out_f32 = build_polynorm(gate_out_f32, polynorm_w, polynorm_b, il);
+
+        // Cast back to original type (to match tmp) for multiplication
+        ggml_tensor * gate_out_norm = ggml_cast(ctx0, poly_out_f32, tmp->type);
+
+        cb(gate_out_norm, "ffn_gate_polynorm", il);
+
+        tmp = ggml_mul(ctx0, gate_out_norm, tmp);
         cb(tmp, "ffn_gate_up_mul", il);
     }
 
