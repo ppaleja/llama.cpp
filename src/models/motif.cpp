@@ -1,6 +1,44 @@
 #include "../llama-kv-cache.h"
 #include "models.h"
 
+#include <cmath>
+
+// Helper: Implements torch.repeat_interleave along dimension 1 (heads dimension)
+// Input: [d, heads, seq]  -> Output: [d, heads*n_rep, seq]
+// repeat_interleave: [A B C D] with n_rep=4 -> [A A A A B B B B C C C C D D D D]
+// (NOT tiling which would be [A B C D A B C D A B C D A B C D])
+static ggml_tensor * repeat_interleave_heads(ggml_context * ctx, ggml_tensor * x, int n_rep) {
+    if (n_rep == 1) {
+        return x;
+    }
+
+    const int64_t d     = x->ne[0];  // head_dim
+    const int64_t heads = x->ne[1];  // num heads
+    const int64_t seq   = x->ne[2];  // sequence length
+
+    // Step 1: Reshape [d, heads, seq] -> [d, 1, heads, seq]
+    // Then repeat to [d, n_rep, heads, seq]
+    // Then reshape to [d, heads*n_rep, seq]
+
+    // But ggml_repeat tiles on the target shape dimension, so we need a different approach:
+    // Reshape [d, heads, seq] to [d, heads, 1, seq]
+    ggml_tensor * x_4d = ggml_reshape_4d(ctx, x, d, heads, 1, seq);
+
+    // Create target tensor [d, heads, n_rep, seq]
+    ggml_tensor * target = ggml_new_tensor_4d(ctx, x->type, d, heads, n_rep, seq);
+
+    // Repeat along dim 2: [d, heads, 1, seq] -> [d, heads, n_rep, seq]
+    ggml_tensor * repeated = ggml_repeat(ctx, x_4d, target);
+
+    // Permute to [d, n_rep, heads, seq] (swap dims 1 and 2)
+    ggml_tensor * permuted = ggml_permute(ctx, repeated, 0, 2, 1, 3);
+
+    // Make contiguous and reshape to [d, heads*n_rep, seq]
+    ggml_tensor * result = ggml_cont_3d(ctx, permuted, d, heads * n_rep, seq);
+
+    return result;
+}
+
 llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_params & params) :
     llm_graph_context(params) {
     ggml_tensor * cur;
