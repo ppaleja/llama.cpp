@@ -396,35 +396,67 @@ ggml_tensor * llm_build_motif::build_polynorm_ffn(ggml_tensor * cur,
 }
 
 // Helper function: build PolyNorm activation
-ggml_tensor * llm_build_motif::build_polynorm(
-        ggml_tensor * x,
-        ggml_tensor * w, ggml_tensor * b,
-        int il) const {
+// PolyNorm: output = w[0]*RMSNorm(x³) + w[1]*RMSNorm(x²) + w[2]*RMSNorm(x) + bias
+// Reference: https://arxiv.org/html/2411.03884v1
+ggml_tensor * llm_build_motif::build_polynorm(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int il) const {
+    const float eps = 1e-6f;
 
-    // PolyNorm formula: w[0]*norm(x³) + w[1]*norm(x²) + w[2]*norm(x) + b
-    // where norm(y) = y / sqrt(mean(y²) + eps) per row
+    // x: [intermediate_size, n_tokens]
+    // w: [3] - three learned weights
+    // b: [1] - bias
 
-    const float eps = 1e-6f;  // Standard epsilon
-
-    // Compute x³, x², x
-    // x³ = x * x * x (using mul since ggml_pow doesn't exist)
+    // Compute x^2 and x^3
     ggml_tensor * x2 = ggml_sqr(ctx0, x);
     ggml_tensor * x3 = ggml_mul(ctx0, x2, x);
-    ggml_tensor * x1 = x;
 
-    // Normalize each (RMS norm per row)
+    // RMSNorm each polynomial term
+    // Note: ggml_rms_norm normalizes along dimension 0
     ggml_tensor * n3 = ggml_rms_norm(ctx0, x3, eps);
     ggml_tensor * n2 = ggml_rms_norm(ctx0, x2, eps);
-    ggml_tensor * n1 = ggml_rms_norm(ctx0, x1, eps);
+    ggml_tensor * n1 = ggml_rms_norm(ctx0, x, eps);
 
-    // Weight and sum: w[0]*n3 + w[1]*n2 + w[2]*n1 + b
-    ggml_tensor * w3 = ggml_mul(ctx0, ggml_view_1d(ctx0, w, 1, 0*sizeof(float)), n3);
-    ggml_tensor * w2 = ggml_mul(ctx0, ggml_view_1d(ctx0, w, 1, 1*sizeof(float)), n2);
-    ggml_tensor * w1 = ggml_mul(ctx0, ggml_view_1d(ctx0, w, 1, 2*sizeof(float)), n1);
+    // For scalar multiplication, we need to extract scalar values and use ggml_scale
+    // But ggml_scale only works with compile-time constants.
+    // Instead, we reshape weight views to be broadcastable:
+    // Create a [1, 1] tensor that can broadcast to [intermediate_size, n_tokens]
 
-    ggml_tensor * result = ggml_add(ctx0, w3, w2);
-    result = ggml_add(ctx0, result, w1);
-    result = ggml_add(ctx0, result, b);
+    // View each weight element as [1, 1] and repeat to match n3 shape
+    // Actually simpler: just use ggml_scale with a proper broadcast
+    // GGML requires b to have dimensions that divide a for repeating.
+
+    // Use a different approach: construct the weighted sum manually
+    // w0*n3: Use ggml_cont to make the scalar contiguous, then ggml_repeat
+
+    // Create 1-element tensors for each weight
+    ggml_tensor * w0   = ggml_view_1d(ctx0, w, 1, 0 * sizeof(float));
+    ggml_tensor * w1_t = ggml_view_1d(ctx0, w, 1, 1 * sizeof(float));  // renamed to avoid conflict with w1
+    ggml_tensor * w2_t = ggml_view_1d(ctx0, w, 1, 2 * sizeof(float));
+
+    // Reshape to [1, 1] to match 2D tensor for broadcasting
+    w0   = ggml_reshape_2d(ctx0, w0, 1, 1);
+    w1_t = ggml_reshape_2d(ctx0, w1_t, 1, 1);
+    w2_t = ggml_reshape_2d(ctx0, w2_t, 1, 1);
+
+    // Repeat to match n3 shape [intermediate_size, n_tokens]
+    ggml_tensor * w0_rep = ggml_repeat(ctx0, w0, n3);
+    ggml_tensor * w1_rep = ggml_repeat(ctx0, w1_t, n2);
+    ggml_tensor * w2_rep = ggml_repeat(ctx0, w2_t, n1);
+
+    // Weighted terms
+    ggml_tensor * term0 = ggml_mul(ctx0, w0_rep, n3);
+    ggml_tensor * term1 = ggml_mul(ctx0, w1_rep, n2);
+    ggml_tensor * term2 = ggml_mul(ctx0, w2_rep, n1);
+
+    // Sum all terms
+    ggml_tensor * result = ggml_add(ctx0, term0, term1);
+    result               = ggml_add(ctx0, result, term2);
+
+    // Add bias (b is [1], reshape to [1, 1] for broadcasting)
+    if (b != nullptr) {
+        ggml_tensor * b_2d  = ggml_reshape_2d(ctx0, b, 1, 1);
+        ggml_tensor * b_rep = ggml_repeat(ctx0, b_2d, result);
+        result              = ggml_add(ctx0, result, b_rep);
+    }
 
     cb(result, "polynorm", il);
 
