@@ -192,6 +192,48 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attn(ggml_tensor *            
     ggml_tensor * Kcached = mctx_cur->get_k(ctx0, il);
     ggml_tensor * Vcached = mctx_cur->get_v(ctx0, il);
 
+#if 1
+    std::fprintf(stderr, "KV CACHE DIAGNOSTICS (layer %d):\n", il);
+    std::fprintf(stderr, "  Kcached (raw): [%lld, %lld, %lld]\n", (long long) Kcached->ne[0],
+                 (long long) Kcached->ne[1], (long long) Kcached->ne[2]);
+#endif
+
+    // FIX: Slice to valid context length (n_past + n_tokens)
+    // The KV cache returns the full buffer (e.g. 32768), but we must only attend to valid tokens
+    const int32_t n_kv_valid = mctx_cur->get_n_kv();
+
+    if (Kcached->ne[2] > n_kv_valid) {
+        Kcached =
+            ggml_view_3d(ctx0, Kcached, Kcached->ne[0], Kcached->ne[1], n_kv_valid, Kcached->nb[1], Kcached->nb[2], 0);
+
+        Vcached =
+            ggml_view_3d(ctx0, Vcached, Vcached->ne[0], Vcached->ne[1], n_kv_valid, Vcached->nb[1], Vcached->nb[2], 0);
+    }
+
+#if 1
+    std::fprintf(stderr, "  Kcached (sliced): [%lld, %lld, %lld]\n", (long long) Kcached->ne[0],
+                 (long long) Kcached->ne[1], (long long) Kcached->ne[2]);
+    std::fprintf(stderr, "  n_tokens (Q): %lld\n", (long long) n_tokens);
+    std::fprintf(stderr, "  mctx->get_n_kv(): %d\n", n_kv_valid);
+
+    ggml_tensor * mask = inp_attn->get_kq_mask();
+    if (mask) {
+        std::fprintf(stderr, "  kq_mask: [%lld, %lld, %lld, %lld]\n", (long long) mask->ne[0], (long long) mask->ne[1],
+                     (long long) mask->ne[2], (long long) mask->ne[3]);
+        // DIAGNOSTIC: Print first few mask values at runtime
+        // Note: mask->data is only available at execution time, not graph-build time
+        // We'll print buffer status instead
+        std::fprintf(stderr, "  kq_mask data ptr: %p, buffer: %p\n", (void *) mask->data, (void *) mask->buffer);
+    } else {
+        std::fprintf(stderr, "  kq_mask: NULL\n");
+    }
+
+    // DIAGNOSTIC: Print first few values of K cache to verify it contains proper data
+    // Note: These are graph-build time checks - actual data will be set during execution
+    std::fprintf(stderr, "  Kcached data ptr: %p, buffer: %p\n", (void *) Kcached->data, (void *) Kcached->buffer);
+    std::fprintf(stderr, "  Qcur data ptr: %p, buffer: %p\n", (void *) Qcur->data, (void *) Qcur->buffer);
+#endif
+
     // Use standard llama.cpp attention helper which handles all the details
     // For Motif, we need to bypass the standard attention and implement GDA manually
     ggml_tensor * attn_output = build_grouped_diff_attention_core(
