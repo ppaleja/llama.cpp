@@ -55,7 +55,7 @@ llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_para
     float    grouped_ratio   = 4.0f;  // Default from Motif-2-12.7B
     float    k_ratio         = 1.0f;  // Default
     uint32_t num_noise_heads = 8;     // Default from Motif-2-12.7B
-    float    lambda_init     = 1.0f;  // Default
+    float    lambda_init     = 0.0f;  // Default to 0.0f (safe), 1.0f leads to zero output!
 
     auto it_grouped_ratio = model.gguf_kv.find("motif.attention.grouped_ratio");
     if (it_grouped_ratio != model.gguf_kv.end()) {
@@ -90,11 +90,15 @@ llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_para
         {
             ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
+            // Calculate lambda_init per layer: 0.8 - 0.6 * exp(-0.3 * (layer_idx - 1))
+            // HuggingFace: self.lambda_init = 0.8 - 0.6 * math.exp(-0.3 * (layer_idx - 1))
+            const float layer_lambda_init = 0.8f - 0.6f * std::exp(-0.3f * (il - 1));
+
             cur = build_grouped_diff_attn(cur, inp_attn, model.layers[il].wq, model.layers[il].wk, model.layers[il].wv,
                                           model.layers[il].wo, model.layers[il].attn_lambda_q1,
                                           model.layers[il].attn_lambda_k1, model.layers[il].attn_lambda_q2,
                                           model.layers[il].attn_lambda_k2, model.layers[il].attn_sub_norm, inp_pos,
-                                          rope_factors, lambda_init, num_noise_heads, grouped_ratio, k_ratio, il);
+                                          rope_factors, layer_lambda_init, num_noise_heads, grouped_ratio, k_ratio, il);
             cb(cur, "attn_out", il);
         }
 
