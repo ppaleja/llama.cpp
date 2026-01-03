@@ -169,86 +169,194 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attn(ggml_tensor *            
     return output;
 }
 
-// Core GroupedDifferentialAttention implementation
-ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(
-        ggml_tensor * Q, ggml_tensor * K, ggml_tensor * V,
-        ggml_tensor * kq_mask,
-        ggml_tensor * lambda_q1, ggml_tensor * lambda_k1,
-        ggml_tensor * lambda_q2, ggml_tensor * lambda_k2,
-        ggml_tensor * attn_sub_norm,
-        float lambda_init,
-        uint32_t num_noise_heads, float grouped_ratio, float k_ratio,
-        int il) const {
+// Core GroupedDifferentialAttention implementation following vLLM exactly
+// vLLM Reference: grouped_diff_attn.py forward() method
+//
+// Algorithm:
+// 1. Split Q into Q1 (32 original heads) and Q2 (8 noise heads)
+// 2. Split K/V into halves: K1/V1 and K2/V2 (8 heads each)
+// 3. Compute 4 attention outputs:
+//    - attn11 = attention(Q1, K1, V1) -> [N, 32, d]
+//    - attn12 = attention(Q1, K1, V2) -> [N, 32, d]
+//    - attn21 = attention(Q2, K2, V1) -> [N, 8, d]
+//    - attn22 = attention(Q2, K2, V2) -> [N, 8, d]
+// 4. Concatenate: attn1 = cat([attn11, attn12], dim=-1) -> [N, 32, 2d]
+//                 attn2 = cat([attn21, attn22], dim=-1) -> [N, 8, 2d]
+// 5. Repeat attn2 by grouped_ratio=4: -> [N, 32, 2d]
+// 6. Differential: attn = attn1 - lambda_full * attn2
+// 7. SubLayerNorm: attn = subln(attn)
+// 8. Scale: attn = attn * (1 - lambda_init)
+// 9. Reshape: [N, 32, 2d] -> [N, 64, d] for o_proj
+ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q,
+                                                                 ggml_tensor * K,
+                                                                 ggml_tensor * V,
+                                                                 ggml_tensor * kq_mask,
+                                                                 ggml_tensor * lambda_q1,
+                                                                 ggml_tensor * lambda_k1,
+                                                                 ggml_tensor * lambda_q2,
+                                                                 ggml_tensor * lambda_k2,
+                                                                 ggml_tensor * attn_sub_norm,
+                                                                 float         lambda_init,
+                                                                 uint32_t      num_noise_heads,
+                                                                 float         grouped_ratio,
+                                                                 float         k_ratio,
+                                                                 int           il) const {
+    // Silence unused params
+    (void) grouped_ratio;
+    (void) k_ratio;
 
     const int64_t n_embd_head = hparams.n_embd_head_v;
-    const int64_t n_head = hparams.n_head(il);
+    const int64_t n_head      = hparams.n_head(il);     // Total Q heads (40)
+    const int64_t n_head_kv   = hparams.n_head_kv(il);  // Total KV heads (16)
+    const int64_t n_kv        = K->ne[2];               // KV cache length
 
-    // Lambda computation: λ1 = exp(sum(λ_q1 * λ_k1)), λ2 = exp(sum(λ_q2 * λ_k2))
+    // Q: [d, n_head, n_tokens] after RoPE
+    // K: [d, n_head_kv, n_kv]
+    // V: [d, n_head_kv, n_kv]
+
+    // ========================================
+    // 1. Calculate Lambda
+    // ========================================
+    // λ_full = exp(sum(λ_q1 * λ_k1)) - exp(sum(λ_q2 * λ_k2)) + λ_init
     ggml_tensor * lambda_q1k1 = ggml_mul(ctx0, lambda_q1, lambda_k1);
     ggml_tensor * lambda_sum1 = ggml_sum(ctx0, lambda_q1k1);
-    ggml_tensor * lambda_1 = ggml_exp(ctx0, lambda_sum1);
+    ggml_tensor * lambda_1    = ggml_exp(ctx0, lambda_sum1);
 
     ggml_tensor * lambda_q2k2 = ggml_mul(ctx0, lambda_q2, lambda_k2);
     ggml_tensor * lambda_sum2 = ggml_sum(ctx0, lambda_q2k2);
-    ggml_tensor * lambda_2 = ggml_exp(ctx0, lambda_sum2);
+    ggml_tensor * lambda_2    = ggml_exp(ctx0, lambda_sum2);
 
-    // λ_full = λ1 - λ2 + λ_init
-    ggml_tensor * lambda_full = ggml_add(ctx0,
-        ggml_sub(ctx0, lambda_1, lambda_2),
-        ggml_new_f32(ctx0, lambda_init));
+    ggml_tensor * lambda_diff = ggml_sub(ctx0, lambda_1, lambda_2);
+    // lambda_full = lambda_diff + lambda_init (applied as scale later)
 
-    cb(lambda_full, "lambda_full", il);
+    // ========================================
+    // 2. Split Q/K/V heads
+    // ========================================
+    // vLLM: Q splits into Q1 (original) and Q2 (noise)
+    // vLLM: K/V split into interleaved halves: K1/V1 from even indices, K2/V2 from odd indices
 
-    // TODO: Implement full grouped differential attention logic
-    // This is a complex implementation that requires:
-    // 1. Head grouping based on grouped_ratio (4.0) and k_ratio (4.0)
-    // 2. Splitting Q/K/V into grouped and noise components
-    // 3. Computing two separate attention maps
-    // 4. Differential combination: attn_o - λ * attn_n
-    //
-    // For now, implement a simplified version that computes standard attention
-    // but applies the lambda scaling and SubLayerNorm
+    const int64_t n_head_q1  = n_head - num_noise_heads;  // 40 - 8 = 32
+    const int64_t n_head_q2  = num_noise_heads;           // 8
+    const int64_t n_head_kv1 = n_head_kv / 2;             // 16 / 2 = 8
+    const int64_t n_head_kv2 = n_head_kv / 2;             // 8
 
-    // Compute standard attention (Q @ K^T) / sqrt(d)
-    const float kq_scale = hparams.f_attention_scale == 0.0f ? 1.0f/sqrtf(float(n_embd_head)) : hparams.f_attention_scale;
+    // Split Q: first n_head_q1 heads are Q1, remaining are Q2
+    // Q is [d, n_head, n_tokens]
+    ggml_tensor * Q1 = ggml_view_3d(ctx0, Q, n_embd_head, n_head_q1, n_tokens, Q->nb[1], Q->nb[2], 0);
+    ggml_tensor * Q2 = ggml_view_3d(ctx0, Q, n_embd_head, n_head_q2, n_tokens, Q->nb[1], Q->nb[2],
+                                    n_embd_head * n_head_q1 * ggml_element_size(Q));
 
-    ggml_tensor * kq = ggml_mul_mat(ctx0, K, Q);
-    cb(kq, "kq", il);
+    // Split K/V: first half are K1/V1, second half are K2/V2
+    // K is [d, n_head_kv, n_kv]
+    ggml_tensor * K1 = ggml_view_3d(ctx0, K, n_embd_head, n_head_kv1, n_kv, K->nb[1], K->nb[2], 0);
+    ggml_tensor * K2 = ggml_view_3d(ctx0, K, n_embd_head, n_head_kv2, n_kv, K->nb[1], K->nb[2],
+                                    n_embd_head * n_head_kv1 * ggml_element_size(K));
 
-    ggml_mul_mat_set_prec(kq, GGML_PREC_F32);
-    kq = ggml_soft_max_ext(ctx0, kq, kq_mask, kq_scale, hparams.f_max_alibi_bias);
-    cb(kq, "kq_softmax", il);
+    ggml_tensor * V1 = ggml_view_3d(ctx0, V, n_embd_head, n_head_kv1, n_kv, V->nb[1], V->nb[2], 0);
+    ggml_tensor * V2 = ggml_view_3d(ctx0, V, n_embd_head, n_head_kv2, n_kv, V->nb[1], V->nb[2],
+                                    n_embd_head * n_head_kv1 * ggml_element_size(V));
 
-    // Compute attention output: attn @ V
-    ggml_tensor * attn_output = ggml_mul_mat(ctx0, V, kq);
-    cb(attn_output, "attn_output_raw", il);
+    // ========================================
+    // 3. Compute 4 attention outputs using build_attn_mha
+    // ========================================
+    // build_attn_mha handles the permutation and mul_mat internally
+    // It expects Q: [d, H_q, N_q], K: [d, H_kv, N_kv], V: [d, H_kv, N_kv]
+    // Returns: [d, N_q, H_q] (after permuting back)
 
-    // Reshape to [n_tokens, n_embd_head * n_head] for SubLayerNorm
-    attn_output = ggml_permute(ctx0, attn_output, 0, 2, 1, 3);
-    attn_output = ggml_cont_2d(ctx0, attn_output, n_embd_head * n_head, n_tokens);
+    const float kq_scale =
+        hparams.f_attention_scale == 0.0f ? 1.0f / sqrtf(float(n_embd_head)) : hparams.f_attention_scale;
 
-    // Apply SubLayerNorm (RMSNorm on the concatenated head outputs)
-    ggml_tensor * normalized = ggml_rms_norm(ctx0, attn_output, hparams.f_norm_rms_eps);
-    normalized = ggml_mul(ctx0, normalized, attn_sub_norm);
-    cb(normalized, "attn_subln", il);
+    // attn11 = attention(Q1, K1, V1) -> [d, n_tokens, 32]
+    ggml_tensor * attn11 = build_attn_mha(Q1, K1, V1, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
+    cb(attn11, "attn11", il);
 
-    // Apply (1 - λ_init) scaling factor
-    ggml_tensor * scaled = ggml_scale(ctx0, normalized, 1.0f - lambda_init);
-    cb(scaled, "attn_scaled", il);
+    // attn12 = attention(Q1, K1, V2) -> [d, n_tokens, 32]
+    ggml_tensor * attn12 = build_attn_mha(Q1, K1, V2, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
+    cb(attn12, "attn12", il);
 
-    return scaled;
+    // attn21 = attention(Q2, K2, V1) -> [d, n_tokens, 8]
+    ggml_tensor * attn21 = build_attn_mha(Q2, K2, V1, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
+    cb(attn21, "attn21", il);
+
+    // attn22 = attention(Q2, K2, V2) -> [d, n_tokens, 8]
+    ggml_tensor * attn22 = build_attn_mha(Q2, K2, V2, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
+    cb(attn22, "attn22", il);
+
+    // ========================================
+    // 4. Concatenate along head_dim: [d, N, H] -> [2d, N, H]
+    // ========================================
+    // attn1 = cat([attn11, attn12], dim=0) -> [2d, n_tokens, 32]
+    ggml_tensor * attn1 = ggml_new_tensor_3d(ctx0, attn11->type, n_embd_head * 2, n_tokens, n_head_q1);
+
+    // Copy attn11 to first half
+    ggml_tensor * attn1_dst1 =
+        ggml_view_3d(ctx0, attn1, n_embd_head, n_tokens, n_head_q1, attn1->nb[1], attn1->nb[2], 0);
+    ggml_build_forward_expand(gf, ggml_cpy(ctx0, attn11, attn1_dst1));
+
+    // Copy attn12 to second half
+    ggml_tensor * attn1_dst2 = ggml_view_3d(ctx0, attn1, n_embd_head, n_tokens, n_head_q1, attn1->nb[1], attn1->nb[2],
+                                            n_embd_head * ggml_element_size(attn1));
+    ggml_build_forward_expand(gf, ggml_cpy(ctx0, attn12, attn1_dst2));
+
+    // attn2 = cat([attn21, attn22], dim=0) -> [2d, n_tokens, 8]
+    ggml_tensor * attn2 = ggml_new_tensor_3d(ctx0, attn21->type, n_embd_head * 2, n_tokens, n_head_q2);
+
+    ggml_tensor * attn2_dst1 =
+        ggml_view_3d(ctx0, attn2, n_embd_head, n_tokens, n_head_q2, attn2->nb[1], attn2->nb[2], 0);
+    ggml_build_forward_expand(gf, ggml_cpy(ctx0, attn21, attn2_dst1));
+
+    ggml_tensor * attn2_dst2 = ggml_view_3d(ctx0, attn2, n_embd_head, n_tokens, n_head_q2, attn2->nb[1], attn2->nb[2],
+                                            n_embd_head * ggml_element_size(attn2));
+    ggml_build_forward_expand(gf, ggml_cpy(ctx0, attn22, attn2_dst2));
+
+    // ========================================
+    // 5. Repeat attn2 by gqa_ratio to match attn1 heads
+    // ========================================
+    // attn2: [2d, n_tokens, 8] -> [2d, n_tokens, 32]
+    ggml_tensor * attn2_rep = ggml_repeat(ctx0, attn2, attn1);
+
+    // ========================================
+    // 6. Differential: attn = attn1 - lambda_full * attn2
+    // ========================================
+    // lambda_full = lambda_diff + lambda_init
+    ggml_tensor * attn2_scaled_diff = ggml_mul(ctx0, attn2_rep, lambda_diff);
+    ggml_tensor * attn2_scaled_init = ggml_scale(ctx0, attn2_rep, lambda_init);
+    ggml_tensor * attn2_scaled      = ggml_add(ctx0, attn2_scaled_diff, attn2_scaled_init);
+
+    ggml_tensor * attn_diff = ggml_sub(ctx0, attn1, attn2_scaled);
+
+    // ========================================
+    // 7. SubLayerNorm (RMSNorm on 2*d dimension)
+    // ========================================
+    ggml_tensor * attn_norm = ggml_rms_norm(ctx0, attn_diff, hparams.f_norm_rms_eps);
+    attn_norm               = ggml_mul(ctx0, attn_norm, attn_sub_norm);
+
+    // ========================================
+    // 8. Scale: attn = attn * (1 - lambda_init)
+    // ========================================
+    ggml_tensor * attn_scaled = ggml_scale(ctx0, attn_norm, 1.0f - lambda_init);
+
+    // ========================================
+    // 9. Reshape for output projection
+    // ========================================
+    // [2d, n_tokens, 32] -> permute to [2d, 32, n_tokens] -> flatten to [2d*32, n_tokens]
+    ggml_tensor * attn_permuted = ggml_permute(ctx0, attn_scaled, 0, 2, 1, 3);
+    ggml_tensor * attn_flat     = ggml_cont_2d(ctx0, attn_permuted, n_embd_head * 2 * n_head_q1, n_tokens);
+
+    return attn_flat;
 }
 
 // Helper function: build PolyNorm activation in FFN
-ggml_tensor * llm_build_motif::build_polynorm_ffn(
-        ggml_tensor * cur,
-        ggml_tensor * ffn_gate, ggml_tensor * ffn_gate_b,
-        ggml_tensor * ffn_up, ggml_tensor * ffn_up_b,
-        ggml_tensor * ffn_down, ggml_tensor * ffn_down_b,
-        ggml_tensor * polynorm_w, ggml_tensor * polynorm_b,
-        int il) const {
-
-    // Standard gate/up computation
+ggml_tensor * llm_build_motif::build_polynorm_ffn(ggml_tensor * cur,
+                                                  ggml_tensor * ffn_gate,
+                                                  ggml_tensor * ffn_gate_b,
+                                                  ggml_tensor * ffn_up,
+                                                  ggml_tensor * ffn_up_b,
+                                                  ggml_tensor * ffn_down,
+                                                  ggml_tensor * ffn_down_b,
+                                                  ggml_tensor * polynorm_w,
+                                                  ggml_tensor * polynorm_b,
+                                                  int           il) const {
     ggml_tensor * tmp = ffn_up ? build_lora_mm(ffn_up, cur) : cur;
     cb(tmp, "ffn_up", il);
 
