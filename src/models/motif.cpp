@@ -243,6 +243,7 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q
     const int64_t n_head_kv   = hparams.n_head_kv(il);  // Total KV heads (16)
     const int64_t n_kv        = K->ne[2];               // KV cache length
 
+    const int64_t n_head_q1  = n_head - num_noise_heads;
 
     // Q: [d, n_head, n_tokens] after RoPE
     // K: [d, n_head_kv, n_kv]
@@ -283,6 +284,7 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q
                                          Q->nb[2],
                                          n_embd_head * (int) grouped_ratio * ggml_element_size(Q));  // offset = 4
     ggml_tensor * Q2      = ggml_cont(ctx0, Q2_view);  // Make contiguous for concat
+
 
     // Cast K/V to F32 for concat operations (CUDA requirement)
     ggml_tensor * K_f32 = (K->type != GGML_TYPE_F32) ? ggml_cast(ctx0, K, GGML_TYPE_F32) : K;
