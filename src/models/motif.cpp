@@ -237,9 +237,6 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q
                                                                  float         grouped_ratio,
                                                                  float         k_ratio,
                                                                  int           il) const {
-    // Silence unused params
-    (void) grouped_ratio;
-    (void) k_ratio;
 
     const int64_t n_embd_head = hparams.n_embd_head_v;
     const int64_t n_head      = hparams.n_head(il);     // Total Q heads (40)
@@ -264,18 +261,6 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q
     ggml_tensor * lambda_2    = ggml_exp(ctx0, lambda_sum2);
 
     ggml_tensor * lambda_diff = ggml_sub(ctx0, lambda_1, lambda_2);
-    // lambda_full = lambda_diff + lambda_init (applied as scale later)
-
-    // ========================================
-    // 2. Split Q/K/V heads
-    // ========================================
-    // vLLM: Q splits into Q1 (original) and Q2 (noise)
-    // vLLM: K/V split into interleaved halves: K1/V1 from even indices, K2/V2 from odd indices
-
-    const int64_t n_head_q1  = n_head - num_noise_heads;  // 40 - 8 = 32
-    const int64_t n_head_q2  = num_noise_heads;           // 8
-    const int64_t n_head_kv1 = n_head_kv / 2;             // 16 / 2 = 8
-    const int64_t n_head_kv2 = n_head_kv / 2;             // 8
 
     const int64_t n_tokens = Q->ne[2];
 
@@ -336,7 +321,6 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q
                                          V_f32->nb[2], n_embd_head * (int) k_ratio * ggml_element_size(V_f32));
     ggml_tensor * V2      = ggml_cont(ctx0, V2_view);  // Make contiguous
 
-// Debugging output shapes
 
     // ========================================
     // PHASE 4: Fuse Q/K/V (HuggingFace approach)
@@ -367,14 +351,8 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q
     // PHASE 5: Two attention calls
     // ========================================
     // build_attn_mha flattens output to [d*heads, N] for o_proj
-    // We need to reshape back to [d, N, heads] for merge/split operations
-
-    // ========================================
-    // PHASE 5: Two attention calls
-    // ========================================
-    // build_attn_mha flattens output to [d*heads, N]
     // The memory layout is [d, heads, N] (Token 0 [Head 0, Head 1...])
-    // We MUST reshape to [d, heads, N] first to match layout
+    // We MUST reshape to [d, heads, N] first to match for layout merge/split operations
 
     ggml_tensor * attn_1_flat = build_attn_mha(q_f, k_f, v1_f, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
     cb(attn_1_flat, "attn_1_flat", il);
