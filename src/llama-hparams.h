@@ -193,6 +193,10 @@ struct llama_hparams {
     // qwen3vl deepstack
     uint32_t n_deepstack_layers = 0;
 
+    // motif
+    float    k_ratio         = 1.0f;
+    uint32_t num_noise_heads = 8;
+
     // needed by encoder-decoder models (e.g. T5, FLAN-T5)
     // ref: https://github.com/ggerganov/llama.cpp/pull/8141
     llama_token dec_start_token_id = LLAMA_TOKEN_NULL;

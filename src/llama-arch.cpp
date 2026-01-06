@@ -194,7 +194,8 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
 
     { LLM_KV_ATTENTION_HEAD_COUNT,                   "%s.attention.head_count"                   },
     { LLM_KV_ATTENTION_HEAD_COUNT_KV,                "%s.attention.head_count_kv"                },
-    { LLM_KV_ATTENTION_GROUPED_RATIO,              "%s.attention.grouped_ratio"                },
+    { LLM_KV_ATTENTION_K_RATIO,                     "%s.attention.k_ratio"                      },
+    { LLM_KV_ATTENTION_NUM_NOISE_HEADS,             "%s.attention.num_noise_heads"              },
     { LLM_KV_ATTENTION_MAX_ALIBI_BIAS,               "%s.attention.max_alibi_bias"               },
     { LLM_KV_ATTENTION_CLAMP_KQV,                    "%s.attention.clamp_kqv"                    },
     { LLM_KV_ATTENTION_KEY_LENGTH,                   "%s.attention.key_length"                   },

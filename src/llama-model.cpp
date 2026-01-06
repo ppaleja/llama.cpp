@@ -2414,6 +2414,8 @@ void llama_model::load_hparams(llama_model_loader & ml) {
         case LLM_ARCH_MOTIF:
             {
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+                ml.get_key(LLM_KV_ATTENTION_K_RATIO, hparams.k_ratio, false);
+                ml.get_key(LLM_KV_ATTENTION_NUM_NOISE_HEADS, hparams.num_noise_heads, false);
 
                 switch (hparams.n_layer) {
                     case 40: type = LLM_TYPE_12_7B; break; // Motif-2-12.7B

@@ -44,39 +44,18 @@ llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_para
     ggml_tensor * cur;
     ggml_tensor * inpL;
 
+    const int64_t n_embd_head = hparams.n_embd_head_v;
+    GGML_ASSERT(n_embd_head == (int64_t) hparams.n_embd_head_k);
+
+    // Calculate grouped_ratio from base hyperparameters (HuggingFace approach)
+    const float grouped_ratio = (hparams.n_head(0) - hparams.num_noise_heads) / (float)hparams.num_noise_heads;
+
     inpL = build_inp_embd(model.tok_embd);
 
     // inp_pos - contains the positions
     ggml_tensor * inp_pos = build_inp_pos();
 
     llm_graph_input_attn_kv * inp_attn = build_attn_inp_kv();
-
-    // Get Motif hyperparameters from GGUF metadata
-    float    grouped_ratio   = 4.0f;  // Default from Motif-2-12.7B
-    float    k_ratio         = 1.0f;  // Default
-    uint32_t num_noise_heads = 8;     // Default from Motif-2-12.7B
-    float    lambda_init     = 0.0f;  // Default to 0.0f (safe), 1.0f leads to zero output!
-
-    auto it_grouped_ratio = model.gguf_kv.find("motif.attention.grouped_ratio");
-    if (it_grouped_ratio != model.gguf_kv.end()) {
-        grouped_ratio = std::stof(it_grouped_ratio->second);
-    }
-
-    auto it_k_ratio = model.gguf_kv.find("motif.attention.k_ratio");
-    if (it_k_ratio != model.gguf_kv.end()) {
-        k_ratio = std::stof(it_k_ratio->second);
-    }
-
-    auto it_num_noise_heads = model.gguf_kv.find("motif.attention.num_noise_heads");
-    if (it_num_noise_heads != model.gguf_kv.end()) {
-        num_noise_heads = std::stoi(it_num_noise_heads->second);
-    }
-
-    auto it_lambda_init = model.gguf_kv.find("motif.attention.lambda_init");
-    if (it_lambda_init != model.gguf_kv.end()) {
-        lambda_init = std::stof(it_lambda_init->second);
-    }
-
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
@@ -99,7 +78,7 @@ llm_build_motif::llm_build_motif(const llama_model & model, const llm_graph_para
                                           model.layers[il].wo, model.layers[il].attn_lambda_q1,
                                           model.layers[il].attn_lambda_k1, model.layers[il].attn_lambda_q2,
                                           model.layers[il].attn_lambda_k2, model.layers[il].attn_sub_norm, inp_pos,
-                                          rope_factors, layer_lambda_init, num_noise_heads, grouped_ratio, k_ratio, il);
+                                          rope_factors, layer_lambda_init, hparams.num_noise_heads, grouped_ratio, hparams.k_ratio, il);
             cb(cur, "attn_out", il);
         }
 
@@ -266,35 +245,6 @@ ggml_tensor * llm_build_motif::build_grouped_diff_attention_core(ggml_tensor * Q
     const int64_t n_head      = hparams.n_head(il);     // Total Q heads (40)
     const int64_t n_head_kv   = hparams.n_head_kv(il);  // Total KV heads (16)
     const int64_t n_kv        = K->ne[2];               // KV cache length
-
-    // ========================================
-    // BYPASS MODE: Use standard attention to verify rest of model works
-    // Set this to 1 to completely skip Motif-specific logic
-    // ========================================
-#define MOTIF_BYPASS_STANDARD_ATTN 0
-#if MOTIF_BYPASS_STANDARD_ATTN
-    // Standard GQA: Q[d,40,N] @ K[d,16,n_kv] -> repeat K to 40 heads -> attn
-    const float   kq_scale = 1.0f / sqrtf(float(n_embd_head));
-    const int64_t n_tokens = Q->ne[2];
-
-    // Repeat K/V to match Q heads (GQA)
-    ggml_tensor * K_rep_target = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_embd_head, n_head, n_kv);
-    ggml_tensor * K_rep        = ggml_repeat(ctx0, K, K_rep_target);
-    ggml_tensor * V_rep        = ggml_repeat(ctx0, V, K_rep_target);
-
-    // Standard attention
-    ggml_tensor * attn_out = build_attn_mha(Q, K_rep, V_rep, nullptr, kq_mask, nullptr, nullptr, kq_scale, il);
-
-    // Apply SubLayerNorm to match expected dimensions
-    // Output of build_attn_mha: [d*40, N]
-    // But Motif wo expects [d*2*32, N] = [8192, N]
-    // We need to project from [d*40, N] = [5120, N] to [8192, N]
-    // This won't work directly. Just return what we have for testing.
-
-
-    // Just return standard attention output (will cause dimension mismatch but shows if it runs)
-    return attn_out;
-#endif
 
 
     // Q: [d, n_head, n_tokens] after RoPE
