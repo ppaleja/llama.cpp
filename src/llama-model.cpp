@@ -81,6 +81,7 @@ const char * llm_type_name(llm_type type) {
         case LLM_TYPE_9B:            return "9B";
         case LLM_TYPE_11B:           return "11B";
         case LLM_TYPE_12B:           return "12B";
+        case LLM_TYPE_12_7B:         return "12.7B";
         case LLM_TYPE_13B:           return "13B";
         case LLM_TYPE_14B:           return "14B";
         case LLM_TYPE_15B:           return "15B";
@@ -2415,7 +2416,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
 
                 switch (hparams.n_layer) {
-                    case 40: type = LLM_TYPE_13B; break; // Motif-2-12.7B
+                    case 40: type = LLM_TYPE_12_7B; break; // Motif-2-12.7B
                     default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;
